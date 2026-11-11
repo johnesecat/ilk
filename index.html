@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>3D Ring Art</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: none;
+    }
+    body, html {
+      width: 100%;
+      height: 100%;
+      background-color: #000;
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+    #canvas-container {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      max-width: 1080px;
+      max-height: 1100px;
+      aspect-ratio: 1080 / 1100;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+    canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <div id="canvas-container">
+    <canvas id="stage" width="1080" height="1100"></canvas>
+  </div>
+
+  <script>
+    // --- Constant Definitions ---
+    const W = 1080, H = 1100, CY = 600, F = 1740, DC = 6.0;
+    const R = 1.0, r = 0.18;
+    const WORDS = "ILOVEYOU";
+    const START = [2.2, 4.6, 5.8, 8.5, 13.2];
+    const SPAN = [2.6, 1.0, 1.4];
+    const G = 0.44, T = 0.27, HC = 0.20, HP = 0.36;
+    const GY = R + r + HP - 0.05;
+
+    // --- Seeded PRNG (Matches Python rng = np.random.default_rng(7)) ---
+    class Mulberry32 {
+      constructor(seed) {
+        this.s = seed;
+      }
+      next() {
+        let t = (this.s += 0x6D2B79F5);
+        t = Math.imul(t ^ (t >>> 15), t | 1);
+        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+      }
+      uniform(min, max) { return min + (max - min) * this.next(); }
+      normal(mean = 0, std = 1) {
+        let u1 = this.next(), u2 = this.next();
+        while (u1 === 0) u1 = this.next();
+        return mean + std * Math.sqrt(-2.0 * Math.log(u1)) * Math.cos(2.0 * Math.PI * u2);
+      }
+      integer(min, max) { return Math.floor(this.uniform(min, max)); }
+    }
+    const rng = new Mulberry32(7);
+
+    // --- Geometry Generators ---
+    function generateBand(n = 2600) {
+      const P = [], N = [], D = [];
+      for (let i = 0; i < n; i++) {
+        const u = rng.uniform(0, 2 * Math.PI);
+        const v = rng.uniform(0, 2 * Math.PI);
+        const c = R + r * Math.cos(v);
+        P.push([c * Math.cos(u), c * Math.sin(u), r * Math.sin(v)]);
+        N.push([Math.cos(v) * Math.cos(u), Math.cos(v) * Math.sin(u), Math.sin(v)]);
+        let dVal = ((u + 1.5 * Math.PI) % (2 * Math.PI) - Math.PI) / Math.PI;
+        D.push(Math.abs(dVal));
+      }
+      return { P, N, D };
+    }
+
+    function generateProngs(n = 44) {
+      const P = [], N = [], D = [];
+      const angles = [Math.PI / 4, 3 * Math.PI / 4, 5 * Math.PI / 4, 7 * Math.PI / 4];
+      for (let a of angles) {
+        const d = [Math.cos(a), 0, Math.sin(a)];
+        const b = [0, R + r - 0.05, 0].map((v, idx) => v + 0.07 * d[idx]);
+        const tip = [0, 1.57, 0].map((v, idx) => v + 0.38 * d[idx]);
+
+        for (let i = 0; i < n; i++) {
+          const s = i / (n - 1);
+          const sinS = Math.sin(Math.PI * s);
+          const pos = [
+            b[0] + s * (tip[0] - b[0]) + 0.04 * sinS * d[0] + rng.normal(0, 0.008),
+            b[1] + s * (tip[1] - b[1]) + 0.04 * sinS * d[1] + rng.normal(0, 0.008),
+            b[2] + s * (tip[2] - b[2]) + 0.04 * sinS * d[2] + rng.normal(0, 0.008)
+          ];
+          P.push(pos);
+          N.push([...d]);
+          D.push(s);
+        }
+      }
+      return { P, N, D };
+    }
+
+    function generateGem(n = 1500) {
+      const P = [], N = [], D = [];
+      let minY = Infinity, maxY = -Infinity;
+      const rawP = [], rawN = [];
+
+      for (let i = 0; i < n; i++) {
+        const zone = rng.next();
+        const s = rng.next();
+        const a = rng.uniform(0, 2 * Math.PI);
+        const k = Math.floor(a / (Math.PI / 8));
+        const lean = 1 + 0.5 * (k % 2);
+        const c = Math.cos((k + 0.5) * Math.PI / 8) * lean;
+        const sn = Math.sin((k + 0.5) * Math.PI / 8) * lean;
+
+        const top = zone < 0.45;
+        const mid = zone < 0.6;
+
+        let rad, y, nx, ny, nz;
+        if (top) {
+          rad = G + (T - G) * s;
+          y = GY + HC * s;
+          nx = HC * c; ny = G - T; nz = HC * sn;
+        } else if (mid) {
+          rad = T * Math.sqrt(s);
+          y = GY + HC;
+          nx = 0; ny = 1; nz = 0;
+        } else {
+          rad = G * (1 - s);
+          y = GY - HP * s;
+          nx = HP * c; ny = -G; nz = HP * sn;
+        }
+
+        const len = Math.hypot(nx, ny, nz);
+        rawP.push([rad * Math.cos(a), y, rad * Math.sin(a)]);
+        rawN.push([nx / len, ny / len, nz / len]);
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+
+      for (let i = 0; i < n; i++) {
+        P.push(rawP[i]);
+        N.push(rawN[i]);
+        D.push((rawP[i][1] - minY) / (maxY - minY));
+      }
+      return { P, N, D };
+    }
+
+    // --- Build Composite Scene Mesh ---
+    const parts = [generateBand(), generateProngs(), generateGem()];
+    const P = [], N = [], D = [], KIND = [], LET = [], FAR = [];
+
+    parts.forEach((part, kIndex) => {
+      for (let i = 0; i < part.P.length; i++) {
+        P.push(part.P[i]);
+        N.push(part.N[i]);
+        D.push(part.D[i]);
+        KIND.push(kIndex);
+        LET.push(WORDS[rng.integer(0, WORDS.length)]);
+        FAR.push([rng.normal(0, 1.4), rng.normal(0, 1.4), rng.normal(0, 1.4)]);
+      }
+    });
+
+    const STARS = [];
+    for (let i = 0; i < 70; i++) {
+      STARS.push([rng.next(), rng.next(), rng.next()]);
+    }
+
+    // --- Helper Math Utilities ---
+    function dot(a, b) { return a[0]*b[0] + a[1]*b[1] + a[2]*b[2]; }
+    function norm(v) {
+      const l = Math.hypot(v[0], v[1], v[2]);
+      return l === 0 ? [0,0,0] : [v[0]/l, v[1]/l, v[2]/l];
+    }
+    function rot(p, a, tilt = 0.3) {
+      const ca = Math.cos(a), sa = Math.sin(a);
+      const ct = Math.cos(tilt), st = Math.sin(tilt);
+      const x = p[0] * ca + p[2] * sa;
+      const z = p[2] * ca - p[0] * sa;
+      return [x, p[1] * ct - z * st, p[1] * st + z * ct];
+    }
+
+    const ORBITS = [
+      { ex: [1, 0.3, 0], ey: [0, 0.2, 1], rx: 1.55, ry: 0.7, sp: 1.3 },
+      { ex: [1, -0.35, 0], ey: [0, 0.9, 0.5], rx: 1.4, ry: 0.8, sp: -1.1 }
+    ];
+
+    function getOrbitPoint(t, ex, ey, rx, ry, sp, j, m = 70) {
+      const a = (j / (m - 1)) * 1.7 * Math.PI + t * sp;
+      const ca = Math.cos(a), sa = Math.sin(a);
+      return [
+        rx * ca * ex[0] + ry * sa * ey[0],
+        rx * ca * ex[1] + ry * sa * ey[1],
+        rx * ca * ex[2] + ry * sa * ey[2]
+      ];
+    }
+
+    // --- Offscreen Canvas Setup for Bloom Processing ---
+    const canvas = document.getElementById('stage');
+    const ctx = canvas.getContext('2d');
+
+    const bloomCanvas = document.createElement('canvas');
+    bloomCanvas.width = W;
+    bloomCanvas.height = H;
+    const bloomCtx = bloomCanvas.getContext('2d');
+
+    // --- Main Rendering Engine ---
+    function draw(t, baseAng) {
+      ctx.fillStyle = '#000000';
+      ctx.fillRect(0, 0, W, H);
+
+      const ang = baseAng;
+
+      // Draw Starfield Background
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '16px monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+
+      for (let i = 0; i < STARS.length; i++) {
+        const [sx, sy, ss] = STARS[i];
+        const v = Math.floor(30 + 50 * Math.abs(Math.sin(t * ss * 3 + i)));
+        const py = ((sy * H - t * ss * 40) % H + H) % H;
+        ctx.fillStyle = `rgb(${v},${v},${v})`;
+        ctx.fillText('+', sx * W, py);
+      }
+
+      function drawHalo(front) {
+        if (t < START[3]) return;
+        const k = Math.min(1, (t - START[3]) / 1.2);
+        for (let orb of ORBITS) {
+          for (let j = 0; j < 70; j++) {
+            const rawO = getOrbitPoint(t, orb.ex, orb.ey, orb.rx, orb.ry, orb.sp, j);
+            const o = rot(rawO, ang * 0.4);
+            const isFront = o[2] >= 0;
+            if (isFront === front) {
+              const sc = F / (DC - o[2]);
+              const v = Math.floor(255 * k * Math.pow(j / 69, 2));
+              const px = W / 2 + o[0] * sc;
+              const py = CY - o[1] * sc;
+              const fontSize = 0.0015 * sc * 24;
+              ctx.font = `${fontSize}px monospace`;
+              ctx.fillStyle = `rgb(${v},${v},${Math.floor(v * 0.9)})`;
+              ctx.fillText(WORDS[j % 8], px, py);
+            }
+          }
+        }
+      }
+
+      drawHalo(false);
+
+      const L1 = norm([-0.5, 0.7, 0.8]);
+      const L2 = norm([Math.cos(t * 2.2), 0.35, Math.sin(t * 2.2)]);
+      const H1 = norm([L1[0], L1[1], L1[2] + 1]);
+      const H2 = norm([L2[0], L2[1], L2[2] + 1]);
+
+      let glintHits = 0;
+      let visibleLetters = 0;
+
+      const indices = new Array(P.length);
+      const qArr = new Array(P.length);
+      const eArr = new Float32Array(P.length);
+      const colArr = new Array(P.length);
+      const scArr = new Float32Array(P.length);
+      const sxArr = new Float32Array(P.length);
+      const syArr = new Float32Array(P.length);
+
+      for (let i = 0; i < P.length; i++) {
+        indices[i] = i;
+        const k = KIND[i];
+        let e = Math.min(Math.max((t - START[k] - D[i] * SPAN[k]) / 0.7, 0), 1);
+        e = 1 - Math.pow(1 - e, 3);
+        eArr[i] = e;
+
+        const pFar = [
+          P[i][0] + (1 - e) * FAR[i][0],
+          P[i][1] + (1 - e) * FAR[i][1],
+          P[i][2] + (1 - e) * FAR[i][2]
+        ];
+        const q = rot(pFar, ang);
+        qArr[i] = q;
+
+        const n = rot(N[i], ang);
+
+        const spec1 = Math.pow(Math.max(0, dot(n, H1)), k === 2 ? 30 : 20);
+        const spec2 = Math.pow(Math.max(0, dot(n, H2)), k === 2 ? 40 : 30);
+        const dif = Math.max(0, dot(n, L1));
+
+        const isGem = k === 2;
+        const b = isGem
+          ? 0.12 + 1.3 * spec2 + 0.7 * spec1
+          : 0.22 + 0.5 * dif + 0.9 * spec1 + 0.8 * spec2;
+
+        if (isGem && b > 0.9 && e > 0.5) glintHits++;
+
+        const bb = Math.min(Math.max(b, 0), 1);
+        const hot = Math.min(Math.max(b - 0.85, 0), 1) * 255;
+        const ph = Math.atan2(n[2], n[0]) * 3 + t * 3;
+
+        const rb = [
+          0.5 + 0.5 * Math.sin(ph),
+          0.5 + 0.5 * Math.sin(ph + 2.1),
+          0.5 + 0.5 * Math.sin(ph + 4.2)
+        ];
+
+        let rC, gC, bC;
+        if (isGem) {
+          const factor = 255 * bb;
+          rC = factor * (0.6 + 0.4 * rb[0]);
+          gC = factor * (0.6 + 0.4 * rb[1]);
+          bC = factor * (0.6 + 0.4 * rb[2]);
+        } else {
+          rC = 90 * bb + hot;
+          gC = 170 * bb + hot;
+          bC = 235 * bb + hot;
+        }
+
+        const fade = Math.min(Math.max(0.6 + 0.3 * q[2], 0.2), 1) * e;
+        rC = Math.min(Math.max(rC * fade, 0), 255);
+        gC = Math.min(Math.max(gC * fade, 0), 255);
+        bC = Math.min(Math.max(bC * fade, 0), 255);
+
+        colArr[i] = [Math.floor(rC), Math.floor(gC), Math.floor(bC)];
+
+        const sc = F / (DC - q[2]);
+        scArr[i] = sc;
+        sxArr[i] = W / 2 + q[0] * sc;
+        syArr[i] = CY - q[1] * sc;
+      }
+
+      // Depth Sort (Painter's Algorithm)
+      indices.sort((a, b) => qArr[a][2] - qArr[b][2]);
+
+      // Render Point Cloud
+      for (let idx = 0; idx < indices.length; idx++) {
+        const i = indices[idx];
+        const e = eArr[i];
+        const [rC, gC, bC] = colArr[i];
+
+        if (e < 0.02 || Math.max(rC, gC, bC) < 14) continue;
+
+        visibleLetters++;
+        const fontSize = 0.0016 * scArr[i] * 20;
+        ctx.font = `${fontSize}px sans-serif`;
+        ctx.fillStyle = `rgb(${rC},${gC},${bC})`;
+        ctx.fillText(LET[i], sxArr[i], syArr[i]);
+      }
+
+      drawHalo(true);
+
+      // --- Bloom Effect (Emulating OpenCV Gaussian Blurs) ---
+      bloomCtx.clearRect(0, 0, W, H);
+      bloomCtx.drawImage(canvas, 0, 0);
+
+      ctx.save();
+      ctx.globalCompositeOperation = 'screen';
+
+      ctx.globalAlpha = 0.8;
+      ctx.filter = 'blur(16px)';
+      ctx.drawImage(bloomCanvas, 0, 0);
+
+      ctx.globalAlpha = 0.4;
+      ctx.filter = 'blur(4px)';
+      ctx.drawImage(bloomCanvas, 0, 0);
+      ctx.restore();
+
+      // --- HUD Elements ---
+      ctx.font = '22px monospace';
+      ctx.fillStyle = 'rgb(135,135,135)';
+      ctx.textAlign = 'left';
+
+      const deg = ((ang * 180 / Math.PI) % 360 + 360) % 360;
+      ctx.fillText(`rotation ${deg.toFixed(2).padStart(6, ' ')} deg`, 30, 50);
+      ctx.fillText(`glints   ${glintHits}`, 30, 82);
+      ctx.fillText(`letters  ${visibleLetters.toLocaleString()}`, 30, 114);
+
+      ctx.fillStyle = 'rgb(110,110,255)';
+      ctx.textAlign = 'right';
+      ctx.fillText(`t ${t.toFixed(2)}s`, W - 30, 50);
+
+      // Script Text Overlay
+      if (t > START[4]) {
+        const msg = "will you be mine forever and ever?";
+        const charCount = Math.floor((t - START[4]) * 9);
+        const part = msg.substring(0, charCount);
+
+        ctx.save();
+        ctx.font = 'italic 42px "Brush Script MT", cursive, sans-serif';
+        ctx.fillStyle = 'rgb(225, 235, 255)';
+        ctx.textAlign = 'center';
+        ctx.shadowColor = 'rgba(225, 235, 255, 0.6)';
+        ctx.shadowBlur = 10;
+        ctx.fillText(part, W / 2, 1030);
+        ctx.restore();
+      }
+    }
+
+    // --- Interaction & Motion State ---
+    let manualAngle = 0;
+    let isDragging = false;
+    let startX = 0;
+    let lastDragTime = 0;
+    const startTime = performance.now();
+
+    // Touch & Mouse Control Handlers
+    function handlePointerDown(x) {
+      isDragging = true;
+      startX = x;
+    }
+
+    function handlePointerMove(x) {
+      if (!isDragging) return;
+      const dx = x - startX;
+      manualAngle += dx * 0.005;
+      startX = x;
+      lastDragTime = performance.now();
+    }
+
+    function handlePointerUp() {
+      isDragging = false;
+    }
+
+    window.addEventListener('mousedown', (e) => handlePointerDown(e.clientX));
+    window.addEventListener('mousemove', (e) => handlePointerMove(e.clientX));
+    window.addEventListener('mouseup', handlePointerUp);
+
+    window.addEventListener('touchstart', (e) => {
+      if (e.touches.length > 0) handlePointerDown(e.touches[0].clientX);
+    }, { passive: true });
+
+    window.addEventListener('touchmove', (e) => {
+      if (e.touches.length > 0) handlePointerMove(e.touches[0].clientX);
+    }, { passive: true });
+
+    window.addEventListener('touchend', handlePointerUp);
+
+    // --- Animation Loop ---
+    function loop() {
+      const now = performance.now();
+      const elapsed = (now - startTime) / 1000.0;
+      const t = elapsed % 18; // 18s animation cycle matching python code
+
+      // Automatically rotate if inactive for over 2 seconds
+      if (!isDragging && (now - lastDragTime > 2000)) {
+        manualAngle += 0.005;
+      }
+
+      draw(t, manualAngle);
+      requestAnimationFrame(loop);
+    }
+
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
