@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>3D ASCII Ring & Box</title>
+  <title>3D ASCII Ring & Box Proposal</title>
   <style>
     * {
       box-sizing: border-box;
@@ -48,30 +48,26 @@
   </div>
 
   <script>
-    // --- Canvas Projection & Scene Constants ---
-    const W = 1080, H = 1100, CY = 580, F = 1740, DC = 6.0;
-    const R = 1.0, r = 0.18;
+    // --- Canvas Projection & Math Constants (Matching Python ring.py) ---
+    const W = 1080, H = 1100, CY = 550, F = 1740, DC = 6.0;
+    const R = 1.0, r = 0.18; // Ring radius & band thickness
     const WORDS = "ILOVEYOU";
 
-    // Animation Timeline Keyframes (seconds)
-    // 0.0 - 2.5: Box glides up into center
-    // 2.5 - 4.0: Box vibrates/shakes
-    // 4.0 - 6.5: Box lid hinges open to the right
-    // 6.5 - 9.5: Ring emerges towards camera; Box recedes back-left
-    // 9.5+: Proposal script text types out
-    const T_BOX_ARRIVE = 2.5;
-    const T_BOX_SHAKE  = 4.0;
-    const T_BOX_OPEN   = 6.5;
-    const T_RING_RISE  = 9.5;
-    const T_PROPOSAL   = 9.8;
+    // Animation Timeline Keyframes (Seconds)
+    const T_BOX_ARRIVE  = 2.2;  // Box glides into center view from bottom
+    const T_BOX_SHAKE   = 4.0;  // Box vibrates gently
+    const T_BOX_OPEN    = 6.5;  // Box lid hinges open UPWARDS
+    const T_SPARK_BURST = 8.5;  // Brilliant ASCII text glare burst erupts from slot
+    const T_RING_EMERGE = 11.0; // Ring emerges forward to dead center
+    const T_PROPOSAL    = 13.2; // Script question types out
 
-    const RING_START = [7.0, 7.8, 8.4]; // Band, Prongs, Gem fly-in timeline
-    const RING_SPAN  = [1.8, 0.9, 1.1];
+    const START = [T_SPARK_BURST + 0.2, T_SPARK_BURST + 0.8, T_SPARK_BURST + 1.2, T_RING_EMERGE, T_PROPOSAL];
+    const SPAN = [2.6, 1.0, 1.4];
 
     const G = 0.44, T = 0.27, HC = 0.20, HP = 0.36;
     const GY = R + r + HP - 0.05;
 
-    // --- Seeded PRNG (Mulberry32) ---
+    // --- Seeded PRNG (Mulberry32 matching Python rng = np.random.default_rng(7)) ---
     class Mulberry32 {
       constructor(seed) { this.s = seed; }
       next() {
@@ -90,9 +86,9 @@
     }
     const rng = new Mulberry32(7);
 
-    // --- 100% ASCII Point-Cloud Geometry Generators ---
+    // --- Geometry Generators ---
 
-    // 1. Ring Band (2,600 Points)
+    // 1. Ring Torus Band (2,600 Points)
     function generateBand(n = 2600) {
       const P = [], N = [], D = [];
       for (let i = 0; i < n; i++) {
@@ -130,7 +126,7 @@
       return { P, N, D };
     }
 
-    // 3. Gem Facet Vertex Cloud (1,500 Points)
+    // 3. Faceted Diamond Gem (1,500 Points)
     function generateGem(n = 1500) {
       const P = [], N = [], D = [];
       let minY = Infinity, maxY = -Infinity;
@@ -138,7 +134,7 @@
 
       for (let i = 0; i < n; i++) {
         const zone = rng.next(), s = rng.next(), a = rng.uniform(0, 2 * Math.PI);
-        const k = Math.floor(a / (Math.PI / 8));
+        const k = Math.floor(a / (Math.PI / 8)); // 16 facets around
         const lean = 1 + 0.5 * (k % 2);
         const c = Math.cos((k + 0.5) * Math.PI / 8) * lean;
         const sn = Math.sin((k + 0.5) * Math.PI / 8) * lean;
@@ -174,138 +170,189 @@
       return { P, N, D };
     }
 
-    // 4. Parametric ASCII Ring Box Base + Cushion Surface Generator (1,400 Points)
-    function generateBoxBase(n = 1400) {
+    // 4. Squished Ring Box Base & Whitish-Grey Velvet Cushion (2,800 Points)
+    function generateBoxBase(n = 2800) {
       const P = [], N = [], D = [], KIND = [];
-      const bw = 1.7, bh = 0.7, bd = 1.7; // Box dimensions
+      const bw = 1.8, bh = 0.50, bd = 1.8;
 
       for (let i = 0; i < n; i++) {
-        const face = rng.integer(0, 6);
-        const u = rng.uniform(-0.5, 0.5);
-        const v = rng.uniform(-0.5, 0.5);
-        let pos = [0, 0, 0], norm = [0, 0, 0], kind = 3; // 3: Velvet Exterior
-
-        if (face === 0) {
-          // Top Surface / Velvet Insert Cushion & Gold Trim
-          pos = [u * bw, bh / 2, v * bd];
-          norm = [0, 1, 0];
-          const isRim = Math.abs(u) > 0.42 || Math.abs(v) > 0.42;
-          const isSlot = !isRim && Math.abs(u) < 0.08 && Math.abs(v) < 0.35;
-          kind = isRim ? 5 : (isSlot ? 6 : 4); // 5: Gold Rim, 4: Red Cushion, 6: Shadow Slot
-          if (isSlot) pos[1] -= 0.08;
-        } else if (face === 1) {
-          pos = [u * bw, -bh / 2, v * bd]; norm = [0, -1, 0];
-        } else if (face === 2) {
-          pos = [bw / 2, u * bh, v * bd]; norm = [1, 0, 0];
-        } else if (face === 3) {
-          pos = [-bw / 2, u * bh, v * bd]; norm = [-1, 0, 0];
-        } else if (face === 4) {
-          pos = [u * bw, v * bh, bd / 2]; norm = [0, 0, 1];
-        } else {
-          pos = [u * bw, v * bh, -bd / 2]; norm = [0, 0, -1];
-        }
-
-        P.push(pos);
-        N.push(norm);
-        D.push(rng.next());
-        KIND.push(kind);
-      }
-      return { P, N, D, KIND };
-    }
-
-    // 5. Parametric ASCII Box Lid Surface Generator (900 Points)
-    function generateBoxLid(n = 900) {
-      const P = [], N = [], D = [], KIND = [];
-      const bw = 1.7, bh = 0.6, bd = 1.7;
-
-      for (let i = 0; i < n; i++) {
-        const face = rng.integer(0, 6);
-        const u = rng.uniform(-0.5, 0.5);
-        const v = rng.uniform(-0.5, 0.5);
+        const sec = rng.next();
         let pos = [0, 0, 0], norm = [0, 0, 0], kind = 3;
 
-        // Local coordinates relative to hinge pivot (hinge at z = +bd/2)
-        if (face === 0) {
-          pos = [u * bw, bh, v * bd - bd / 2]; norm = [0, 1, 0];
-          kind = 3;
-        } else if (face === 1) {
-          pos = [u * bw, 0, v * bd - bd / 2]; norm = [0, -1, 0];
-          kind = (Math.abs(u) > 0.42 || Math.abs(v) > 0.42) ? 5 : 4; // Interior Satin
-        } else if (face === 2) {
-          pos = [bw / 2, u * bh + bh / 2, v * bd - bd / 2]; norm = [1, 0, 0];
-        } else if (face === 3) {
-          pos = [-bw / 2, u * bh + bh / 2, v * bd - bd / 2]; norm = [-1, 0, 0];
-        } else if (face === 4) {
-          pos = [u * bw, v * bh + bh / 2, 0]; norm = [0, 0, 1];
+        if (sec < 0.48) {
+          // Interior Top Plush Cushion (Whitish-Grey Satin)
+          const u = rng.uniform(-bw/2 + 0.05, bw/2 - 0.05);
+          const v = rng.uniform(-bd/2 + 0.05, bd/2 - 0.05);
+          const absU = Math.abs(u), absV = Math.abs(v);
+          const isGoldRim = absU > (bw/2 - 0.12) || absV > (bd/2 - 0.12);
+          const isSlot = !isGoldRim && absU < 0.12 && absV < 0.55;
+
+          pos = [u, bh/2, v];
+          if (isGoldRim) {
+            kind = 5; // Metallic Gold Trim Frame
+            norm = [0, 1, 0];
+          } else if (isSlot) {
+            kind = 6; // Dark Inner Cushion Ring Slot
+            pos[1] -= 0.12;
+            norm = [0, 1, 0];
+          } else {
+            kind = 4; // Whitish-Grey Velvet Satin Cushion
+            const cushionDome = Math.max(0, (1.0 - Math.hypot(u / (bw/2), v / (bd/2))) * 0.08);
+            pos[1] += cushionDome;
+            norm = [0, 1, 0];
+          }
+        } else if (sec < 0.90) {
+          // Royal Velvet Exterior Box Walls
+          const wall = rng.integer(0, 4);
+          const u = rng.uniform(-0.5, 0.5);
+          const h = rng.uniform(-bh/2, bh/2);
+
+          if (wall === 0) { // Front (+Z)
+            pos = [u * bw, h, bd/2]; norm = [0, 0, 1];
+          } else if (wall === 1) { // Back (-Z Hinge Side)
+            pos = [u * bw, h, -bd/2]; norm = [0, 0, -1];
+          } else if (wall === 2) { // Right (+X)
+            pos = [bw/2, h, u * bd]; norm = [1, 0, 0];
+          } else { // Left (-X)
+            pos = [-bw/2, h, u * bd]; norm = [-1, 0, 0];
+          }
+
+          const isGoldAccent = h > (bh/2 - 0.06);
+          kind = isGoldAccent ? 5 : 3;
         } else {
-          pos = [u * bw, v * bh + bh / 2, -bd]; norm = [0, 0, -1];
+          // Bottom Base Plate
+          const u = rng.uniform(-bw/2, bw/2);
+          const v = rng.uniform(-bd/2, bd/2);
+          pos = [u, -bh/2, v]; norm = [0, -1, 0]; kind = 3;
         }
 
-        P.push(pos);
-        N.push(norm);
-        D.push(rng.next());
-        KIND.push(kind);
+        P.push(pos); N.push(norm); D.push(rng.next()); KIND.push(kind);
       }
       return { P, N, D, KIND };
     }
 
-    // --- Build Composite Scene Datasets ---
-    const ringParts = [generateBand(), generateProngs(), generateGem()];
-    const boxBase = generateBoxBase();
-    const boxLid  = generateBoxLid();
+    // 5. Ring Box Lid (2,400 Points - Hinges UPWARDS at Back Edge -Z)
+    function generateBoxLid(n = 2400) {
+      const P = [], N = [], D = [], KIND = [];
+      const bw = 1.84, bh = 0.38, bd = 1.84;
 
+      for (let i = 0; i < n; i++) {
+        const sec = rng.next();
+        let pos = [0, 0, 0], norm = [0, 0, 0], kind = 3;
+
+        // Local coordinates anchored relative to Hinge Pivot Line (z = -bd to 0)
+        if (sec < 0.60) {
+          // Top Roof Exterior (Dense ASCII Text Matrix)
+          const u = rng.uniform(-bw/2, bw/2);
+          const zRel = rng.uniform(-bd, 0);
+          pos = [u, bh, zRel]; norm = [0, 1, 0];
+
+          const isGoldRim = Math.abs(u) > (bw/2 - 0.08) || zRel > -0.08 || zRel < (-bd + 0.08);
+          kind = isGoldRim ? 5 : 3;
+        } else if (sec < 0.80) {
+          // Inner Ceiling Satin Lining (Whitish-Grey)
+          const u = rng.uniform(-bw/2, bw/2);
+          const zRel = rng.uniform(-bd, 0);
+          pos = [u, 0.02, zRel]; norm = [0, -1, 0];
+          kind = 4; // Whitish-Grey Satin Ceiling
+        } else {
+          // Lid Side Lips
+          const wall = rng.integer(0, 4);
+          const u = rng.uniform(-0.5, 0.5);
+          const h = rng.uniform(0, bh);
+
+          if (wall === 0) { // Back Lip (z = 0 Hinge)
+            pos = [u * bw, h, 0]; norm = [0, 0, 1];
+          } else if (wall === 1) { // Front Opening Lip (z = -bd)
+            pos = [u * bw, h, -bd]; norm = [0, 0, -1];
+          } else if (wall === 2) { // Right Lip (+X)
+            pos = [bw/2, h, u * bd - bd/2]; norm = [1, 0, 0];
+          } else { // Left Lip (-X)
+            pos = [-bw/2, h, u * bd - bd/2]; norm = [-1, 0, 0];
+          }
+
+          const isGoldEdge = h < 0.05;
+          kind = isGoldEdge ? 5 : 3;
+        }
+
+        P.push(pos); N.push(norm); D.push(rng.next()); KIND.push(kind);
+      }
+      return { P, N, D, KIND };
+    }
+
+    // --- Build Composite Scene Mesh Arrays ---
+    const ringParts = [generateBand(), generateProngs(), generateGem()];
     const RING_P = [], RING_N = [], RING_D = [], RING_KIND = [], RING_LET = [], RING_FAR = [];
+
     ringParts.forEach((part, kIndex) => {
       for (let i = 0; i < part.P.length; i++) {
         RING_P.push(part.P[i]);
         RING_N.push(part.N[i]);
         RING_D.push(part.D[i]);
-        RING_KIND.push(kIndex); // 0: Band, 1: Prongs, 2: Gem
+        RING_KIND.push(kIndex);
         RING_LET.push(WORDS[rng.integer(0, WORDS.length)]);
         RING_FAR.push([rng.normal(0, 1.4), rng.normal(0, 1.4), rng.normal(0, 1.4)]);
       }
     });
 
-    function initBoxData(data) {
-      const LET = [], FAR = [];
-      for (let i = 0; i < data.P.length; i++) {
-        LET.push(WORDS[rng.integer(0, WORDS.length)]);
-        FAR.push([rng.normal(0, 1.2), rng.normal(0, 1.2), rng.normal(0, 1.2)]);
+    function attachTextToGeometry(geo) {
+      geo.LET = [];
+      for (let i = 0; i < geo.P.length; i++) {
+        geo.LET.push(WORDS[rng.integer(0, WORDS.length)]);
       }
-      return { ...data, LET, FAR };
     }
-    const BOX_BASE = initBoxData(boxBase);
-    const BOX_LID  = initBoxData(boxLid);
+
+    const BOX_BASE = generateBoxBase();
+    attachTextToGeometry(BOX_BASE);
+
+    const BOX_LID = generateBoxLid();
+    attachTextToGeometry(BOX_LID);
 
     const STARS = [];
     for (let i = 0; i < 70; i++) {
       STARS.push([rng.next(), rng.next(), rng.next()]);
     }
 
-    // --- Vector Math Utilities ---
-    function dot(a, b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
-    function norm(v) {
-      const l = Math.hypot(v[0], v[1], v[2]);
-      return l === 0 ? [0, 0, 0] : [v[0] / l, v[1] / l, v[2] / l];
+    // --- High-Intensity ASCII Sparkle Burst Generator ---
+    const BURST_PARTICLES = [];
+    for (let i = 0; i < 220; i++) {
+      const dir = [rng.normal(0, 1), rng.normal(0, 1), rng.normal(0, 1)];
+      const len = Math.hypot(dir[0], dir[1], dir[2]) || 1;
+      BURST_PARTICLES.push({
+        dir: [dir[0]/len, dir[1]/len, dir[2]/len],
+        speed: rng.uniform(0.4, 1.8),
+        size: rng.uniform(14, 38),
+        char: WORDS[i % WORDS.length]
+      });
     }
+
+    // --- Vector & Quaternion Rotation Math Utilities ---
+    function dot(a, b) { return a[0]*b[0] + a[1]*b[1] + a[2]*b[2]; }
+    function unit(v) {
+      const l = Math.hypot(v[0], v[1], v[2]);
+      return l === 0 ? [0,0,0] : [v[0]/l, v[1]/l, v[2]/l];
+    }
+    function easeInOutCubic(t) {
+      return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+    }
+
+    // Rotate point around X-axis (Pitch - for UPWARD Lid Opening)
     function rotX(p, angle) {
       const c = Math.cos(angle), s = Math.sin(angle);
       return [p[0], p[1] * c - p[2] * s, p[1] * s + p[2] * c];
     }
-    function rotY(p, angle) {
-      const c = Math.cos(angle), s = Math.sin(angle);
-      return [p[0] * c + p[2] * s, p[1], p[2] * c - p[0] * s];
-    }
-    function rotZ(p, angle) {
-      const c = Math.cos(angle), s = Math.sin(angle);
-      return [p[0] * c - p[1] * s, p[0] * s + p[1] * c, p[2]];
-    }
-    function rot3D(p, rx, ry, tilt = 0.3) {
-      // Rotate Y, then X, then Apply Camera Tilt
-      let v = rotY(p, ry);
-      v = rotX(v, rx);
-      const ct = Math.cos(tilt), st = Math.sin(tilt);
-      return [v[0], v[1] * ct - v[2] * st, v[1] * st + v[2] * ct];
+
+    // Rotate point around both X and Y axes (Yaw & Pitch - for User Touch Swipe)
+    function rot3D(p, rx, ry) {
+      // Y-axis rotation
+      const cy = Math.cos(ry), sy = Math.sin(ry);
+      const x1 = p[0] * cy + p[2] * sy;
+      const z1 = p[2] * cy - p[0] * sy;
+      // X-axis rotation
+      const cx = Math.cos(rx), sx = Math.sin(rx);
+      const y2 = p[1] * cx - z1 * sx;
+      const z2 = p[1] * sx + z1 * cx;
+      return [x1, y2, z2];
     }
 
     const ORBITS = [
@@ -323,11 +370,7 @@
       ];
     }
 
-    function easeInOutCubic(x) {
-      return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
-    }
-
-    // --- HTML5 Canvas & Offscreen Blur Setup ---
+    // --- Offscreen Canvas Double-Buffer Setup for Bloom ---
     const canvas = document.getElementById('stage');
     const ctx = canvas.getContext('2d');
 
@@ -336,20 +379,17 @@
     bloomCanvas.height = H;
     const bloomCtx = bloomCanvas.getContext('2d');
 
-    // Touch & Swipe Rotation Interaction State
-    let manualRotX = 0, manualRotY = 0;
-    let velRotX = 0, velRotY = 0;
+    // --- Touch Interaction Engine (Rotates ONLY the Ring Once Emerged) ---
+    let ringRotX = 0, ringRotY = 0;
+    let velRingX = 0, velRingY = 0;
     let isDragging = false;
     let lastPointerX = 0, lastPointerY = 0;
-    let lastInteractionTime = 0;
 
     function handlePointerDown(x, y) {
       isDragging = true;
       lastPointerX = x;
       lastPointerY = y;
-      velRotX = 0;
-      velRotY = 0;
-      lastInteractionTime = performance.now();
+      velRingX = 0; velRingY = 0;
     }
 
     function handlePointerMove(x, y) {
@@ -359,16 +399,11 @@
       lastPointerX = x;
       lastPointerY = y;
 
-      velRotY = dx * 0.005;
-      velRotX = dy * 0.005;
-      manualRotY += velRotY;
-      manualRotX += velRotX;
-      lastInteractionTime = performance.now();
+      velRingY += dx * 0.005;
+      velRingX += dy * 0.005;
     }
 
-    function handlePointerUp() {
-      isDragging = false;
-    }
+    function handlePointerUp() { isDragging = false; }
 
     window.addEventListener('mousedown', (e) => handlePointerDown(e.clientX, e.clientY));
     window.addEventListener('mousemove', (e) => handlePointerMove(e.clientX, e.clientY));
@@ -384,7 +419,6 @@
 
     window.addEventListener('touchend', handlePointerUp);
 
-    // --- Safari & Mobile Safe Canvas Text Renderer ---
     function renderPointGlyph(targetCtx, charStr, px, py, fontSize, rC, gC, bC) {
       targetCtx.font = `bold ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace`;
       targetCtx.fillStyle = `rgb(${rC},${gC},${bC})`;
@@ -393,24 +427,26 @@
       targetCtx.fillText(charStr, px, py);
     }
 
-    // --- Main Rendering Pipeline ---
+    // --- Main Rendering Engine ---
+    const startTime = performance.now();
+
     function draw(t) {
       ctx.fillStyle = '#000000';
       ctx.fillRect(0, 0, W, H);
 
-      // Inertial Momentum Decay & Fallback Auto-Rotation
-      if (!isDragging) {
-        manualRotX += velRotX;
-        manualRotY += velRotY;
-        velRotX *= 0.92;
-        velRotY *= 0.92;
-
-        if (performance.now() - lastInteractionTime > 2000) {
-          manualRotY += 0.006;
-        }
+      // Touch Drag Inertia Friction Decay
+      if (isDragging) {
+        ringRotX += velRingX;
+        ringRotY += velRingY;
+        velRingX *= 0.5; velRingY *= 0.5;
+      } else {
+        ringRotX += velRingX;
+        ringRotY += velRingY;
+        velRingX *= 0.92;
+        velRingY *= 0.92;
       }
 
-      // Draw Starfield Background
+      // Draw Starfield Background (Fixed)
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       for (let i = 0; i < STARS.length; i++) {
@@ -420,239 +456,270 @@
         renderPointGlyph(ctx, '+', sx * W, py, 14, v, v, v);
       }
 
-      // Lighting Vectors
-      const L1 = norm([-0.5, 0.7, 0.8]);
-      const L2 = norm([Math.cos(t * 2.2), 0.35, Math.sin(t * 2.2)]);
-      const H1 = norm([L1[0], L1[1], L1[2] + 1]);
-      const H2 = norm([L2[0], L2[1], L2[2] + 1]);
+      // Lighting Direction Vectors (Facing Screen Viewer [0, 0, 1])
+      const L1 = unit([-0.5, 0.7, 0.8]);
+      const L2 = unit([Math.cos(t * 2.2), 0.35, Math.sin(t * 2.2)]);
+      const H1 = unit([L1[0], L1[1], L1[2] + 1]);
+      const H2 = unit([L2[0], L2[1], L2[2] + 1]);
 
-      // Calculate Box State & Position via Timeline
-      let boxPos = [0, 0, 0];
+      // Calculate Box Positioning & UPWARD Lid Hinge Animation
+      let boxPos = [0, -0.2, 0];
       let lidAngle = 0;
 
       if (t < T_BOX_ARRIVE) {
         const p = easeInOutCubic(t / T_BOX_ARRIVE);
-        boxPos = [0, (1 - p) * -5.0, 0];
+        boxPos = [0, 3.5 - p * 3.7, 0]; // Glides UP into center
       } else if (t < T_BOX_SHAKE) {
-        const st = (t - T_BOX_ARRIVE) * 22;
-        boxPos = [Math.sin(st) * 0.04, 0, Math.cos(st * 0.8) * 0.04];
+        const st = (t - T_BOX_ARRIVE) * 24;
+        boxPos = [Math.sin(st) * 0.03, -0.2, Math.cos(st * 0.8) * 0.03]; // Shakes gently
       } else if (t < T_BOX_OPEN) {
         const p = easeInOutCubic((t - T_BOX_SHAKE) / (T_BOX_OPEN - T_BOX_SHAKE));
-        lidAngle = p * (Math.PI * 0.72); // Opens to right/back
-      } else if (t < T_RING_RISE) {
-        lidAngle = Math.PI * 0.72;
-        const p = easeInOutCubic((t - T_BOX_OPEN) / (T_RING_RISE - T_BOX_OPEN));
-        boxPos = [-1.4 * p, -0.6 * p, -2.0 * p]; // Box shifts back and left
+        lidAngle = -p * (Math.PI * 0.78); // Hinges UPWARDS & BACKWARDS around back edge
+      } else if (t < T_RING_EMERGE) {
+        lidAngle = -(Math.PI * 0.78);
+        const p = easeInOutCubic((t - T_SPARK_BURST) / (T_RING_EMERGE - T_SPARK_BURST));
+        boxPos = [-1.3 * p, -0.2 - 0.6 * p, -1.8 * p]; // Shifts back-left as ring emerges center
       } else {
-        lidAngle = Math.PI * 0.72;
-        boxPos = [-1.4, -0.6, -2.0];
+        lidAngle = -(Math.PI * 0.78);
+        boxPos = [-1.3, -0.8, -1.8];
       }
 
-      // Calculate Ring Center Position via Timeline
-      let ringPos = [0, 0, 0];
-      if (t > T_BOX_OPEN) {
-        const p = easeInOutCubic(Math.min(1.0, (t - T_BOX_OPEN) / (T_RING_RISE - T_BOX_OPEN)));
-        ringPos = [0, p * 0.3, p * 1.3];
+      // Calculate Ring Positioning & Glare Emergence Timeline
+      let ringPos = [0, -0.2, 0];
+      let ringAlpha = 0;
+      let sparkBurstAlpha = 0;
+
+      if (t > T_BOX_OPEN && t <= T_SPARK_BURST) {
+        sparkBurstAlpha = (t - T_BOX_OPEN) / (T_SPARK_BURST - T_BOX_OPEN);
+      } else if (t > T_SPARK_BURST) {
+        const p = easeInOutCubic(Math.min(1.0, (t - T_SPARK_BURST) / (T_RING_EMERGE - T_SPARK_BURST)));
+        ringPos = [0, -0.2 + p * 0.2, p * 1.5]; // Glides forward into absolute center viewport
+        ringAlpha = Math.min(1.0, (t - T_SPARK_BURST) / 1.5);
+        sparkBurstAlpha = Math.max(0, 1.0 - p * 1.2);
       }
 
-      // Unified Render Queue for Painter's Algorithm Depth Sorting
       const renderList = [];
       let glintHits = 0;
 
-      // 1. Process Box Base ASCII Points
+      // 1. Render Box Base (Fixed Scene Coordinates)
       for (let i = 0; i < BOX_BASE.P.length; i++) {
         const pLocal = BOX_BASE.P[i];
         const nLocal = BOX_BASE.N[i];
         const k = BOX_BASE.KIND[i];
 
         const worldP = [pLocal[0] + boxPos[0], pLocal[1] + boxPos[1], pLocal[2] + boxPos[2]];
-        const q = rot3D(worldP, manualRotX, manualRotY);
-        const n = rot3D(nLocal, manualRotX, manualRotY);
+        const q = rot3D(worldP, 0, 0);
+        const n = rot3D(nLocal, 0, 0);
 
         const dif = Math.max(0, dot(n, L1));
-        const spec = Math.pow(Math.max(0, dot(n, H1)), 15);
-        let rC, gC, bC;
+        const spec = Math.pow(Math.max(0, dot(n, H1)), 20);
 
-        if (k === 5) { // Gold Rim
-          const bb = 0.3 + 0.7 * dif;
-          rC = Math.floor(215 * bb + spec * 100);
+        let rC, gC, bC;
+        if (k === 5) { // Metallic Gold Frame Accent
+          const bb = 0.35 + 0.65 * dif;
+          rC = Math.floor(235 * bb + spec * 120);
           gC = Math.floor(170 * bb + spec * 100);
-          bC = Math.floor(50 * bb);
-        } else if (k === 4) { // Inner Cushion
-          rC = Math.floor(110 * (0.2 + 0.8 * dif));
-          gC = Math.floor(20 * (0.2 + 0.8 * dif));
-          bC = Math.floor(35 * (0.2 + 0.8 * dif));
-        } else if (k === 6) { // Shadow Slot
-          rC = 15; gC = 10; bC = 15;
-        } else { // Exterior Velvet Red
+          bC = Math.floor(90 * bb);
+        } else if (k === 4) { // Whitish-Grey Velvet Cushion Interior
+          const bb = 0.55 + 0.45 * dif;
+          rC = Math.floor(220 * bb + spec * 35);
+          gC = Math.floor(225 * bb + spec * 35);
+          bC = Math.floor(235 * bb + spec * 35);
+        } else if (k === 6) { // Dark Plush Center Slot
+          rC = 25; gC = 25; bC = 30;
+        } else { // Royal Velvet Exterior
           const bb = 0.2 + 0.8 * dif;
-          rC = Math.floor(180 * bb);
-          gC = Math.floor(25 * bb);
-          bC = Math.floor(45 * bb);
+          rC = Math.floor(155 * bb + spec * 30);
+          gC = Math.floor(20 * bb);
+          bC = Math.floor(40 * bb);
         }
 
         const sc = F / (DC - q[2]);
         renderList.push({
-          z: q[2],
-          sx: W / 2 + q[0] * sc,
-          sy: CY - q[1] * sc,
-          char: BOX_BASE.LET[i],
-          sc: sc,
+          z: q[2], sx: W / 2 + q[0] * sc, sy: CY - q[1] * sc,
+          char: BOX_BASE.LET[i], sc: sc,
           color: [Math.min(255, rC), Math.min(255, gC), Math.min(255, bC)]
         });
       }
 
-      // 2. Process Box Lid ASCII Points (Hinged Rotation around back edge)
+      // 2. Render Box Lid (Hinges UPWARDS and BACKWARDS at Back Edge -Z)
       for (let i = 0; i < BOX_LID.P.length; i++) {
         const pLocal = BOX_LID.P[i];
         const nLocal = BOX_LID.N[i];
         const k = BOX_LID.KIND[i];
 
-        // Apply lid hinge rotation around Z-axis pivot at back edge
-        const pLidRot = rotZ(pLocal, lidAngle);
-        const nLidRot = rotZ(nLocal, lidAngle);
+        // Pitch lid UPWARDS relative to back pivot line (z = -0.92)
+        const pLidRot = rotX(pLocal, lidAngle);
+        const nLidRot = rotX(nLocal, lidAngle);
 
         const worldP = [
           pLidRot[0] + boxPos[0],
-          pLidRot[1] + boxPos[1] + 0.35,
-          pLidRot[2] + boxPos[2] + 0.85
+          pLidRot[1] + boxPos[1] + 0.25,
+          pLidRot[2] + boxPos[2] - 0.92
         ];
 
-        const q = rot3D(worldP, manualRotX, manualRotY);
-        const n = rot3D(nLidRot, manualRotX, manualRotY);
+        const q = rot3D(worldP, 0, 0);
+        const n = rot3D(nLidRot, 0, 0);
 
         const dif = Math.max(0, dot(n, L1));
-        const spec = Math.pow(Math.max(0, dot(n, H1)), 15);
-        let rC, gC, bC;
+        const spec = Math.pow(Math.max(0, dot(n, H1)), 20);
 
-        if (k === 5) {
-          const bb = 0.3 + 0.7 * dif;
-          rC = Math.floor(215 * bb + spec * 100);
+        let rC, gC, bC;
+        if (k === 5) { // Gold Rim Accent
+          const bb = 0.35 + 0.65 * dif;
+          rC = Math.floor(235 * bb + spec * 120);
           gC = Math.floor(170 * bb + spec * 100);
-          bC = Math.floor(50 * bb);
-        } else if (k === 4) { // Satin Inner Lid
-          rC = Math.floor(200 * (0.3 + 0.7 * dif));
-          gC = Math.floor(180 * (0.3 + 0.7 * dif));
-          bC = Math.floor(190 * (0.3 + 0.7 * dif));
-        } else {
+          bC = Math.floor(90 * bb);
+        } else if (k === 4) { // Whitish-Grey Satin Ceiling
+          const bb = 0.55 + 0.45 * dif;
+          rC = Math.floor(225 * bb + spec * 30);
+          gC = Math.floor(230 * bb + spec * 30);
+          bC = Math.floor(235 * bb + spec * 30);
+        } else { // Royal Velvet Roof Exterior
           const bb = 0.2 + 0.8 * dif;
-          rC = Math.floor(180 * bb);
-          gC = Math.floor(25 * bb);
-          bC = Math.floor(45 * bb);
+          rC = Math.floor(155 * bb + spec * 30);
+          gC = Math.floor(20 * bb);
+          bC = Math.floor(40 * bb);
         }
 
         const sc = F / (DC - q[2]);
         renderList.push({
-          z: q[2],
-          sx: W / 2 + q[0] * sc,
-          sy: CY - q[1] * sc,
-          char: BOX_LID.LET[i],
-          sc: sc,
+          z: q[2], sx: W / 2 + q[0] * sc, sy: CY - q[1] * sc,
+          char: BOX_LID.LET[i], sc: sc,
           color: [Math.min(255, rC), Math.min(255, gC), Math.min(255, bC)]
         });
       }
 
-      // 3. Process Ring Point Cloud ASCII Characters
-      const ringTime = Math.max(0, t - RING_START[0]);
-      const ringBaseAng = 0.5 + 0.95 * ringTime;
+      // 3. Render High-Intensity ASCII Text Glare / Sparkle Burst
+      if (sparkBurstAlpha > 0.01) {
+        const burstOrigin = [boxPos[0], boxPos[1] + 0.15, boxPos[2] + 0.2];
+        const qB = rot3D(burstOrigin, 0, 0);
+        const scB = F / (DC - qB[2]);
+        const bx = W / 2 + qB[0] * scB;
+        const by = CY - qB[1] * scB;
 
-      for (let i = 0; i < RING_P.length; i++) {
-        const k = RING_KIND[i];
-        let e = Math.min(Math.max((t - RING_START[k] - RING_D[i] * RING_SPAN[k]) / 0.7, 0), 1);
-        e = 1 - Math.pow(1 - e, 3);
+        for (let i = 0; i < BURST_PARTICLES.length; i++) {
+          const p = BURST_PARTICLES[i];
+          const dist = p.speed * sparkBurstAlpha;
+          const px = bx + p.dir[0] * dist * scB;
+          const py = by - p.dir[1] * dist * scB;
+          const pZ = qB[2] + p.dir[2] * dist;
 
-        const pFar = [
-          RING_P[i][0] + (1 - e) * RING_FAR[i][0] + ringPos[0],
-          RING_P[i][1] + (1 - e) * RING_FAR[i][1] + ringPos[1],
-          RING_P[i][2] + (1 - e) * RING_FAR[i][2] + ringPos[2]
-        ];
-
-        // Apply ring auto spin + manual drag rotation
-        const qRingSpin = rotY(pFar, ringBaseAng);
-        const q = rot3D(qRingSpin, manualRotX, manualRotY);
-
-        const nSpin = rotY(RING_N[i], ringBaseAng);
-        const n = rot3D(nSpin, manualRotX, manualRotY);
-
-        const spec1 = Math.pow(Math.max(0, dot(n, H1)), k === 2 ? 30 : 20);
-        const spec2 = Math.pow(Math.max(0, dot(n, H2)), k === 2 ? 40 : 30);
-        const dif = Math.max(0, dot(n, L1));
-
-        const isGem = (k === 2);
-        const b = isGem
-          ? 0.12 + 1.3 * spec2 + 0.7 * spec1
-          : 0.22 + 0.5 * dif + 0.9 * spec1 + 0.8 * spec2;
-
-        if (isGem && b > 0.9 && e > 0.5) glintHits++;
-
-        const bb = Math.min(Math.max(b, 0), 1);
-        const hot = Math.min(Math.max(b - 0.85, 0), 1) * 255;
-        const ph = Math.atan2(n[2], n[0]) * 3 + t * 3;
-
-        const rb = [
-          0.5 + 0.5 * Math.sin(ph),
-          0.5 + 0.5 * Math.sin(ph + 2.1),
-          0.5 + 0.5 * Math.sin(ph + 4.2)
-        ];
-
-        let rC, gC, bC;
-        if (isGem) {
-          const factor = 255 * bb;
-          rC = factor * (0.6 + 0.4 * rb[0]);
-          gC = factor * (0.6 + 0.4 * rb[1]);
-          bC = factor * (0.6 + 0.4 * rb[2]);
-        } else {
-          rC = 90 * bb + hot;
-          gC = 170 * bb + hot;
-          bC = 235 * bb + hot;
-        }
-
-        const fade = Math.min(Math.max(0.6 + 0.3 * q[2], 0.2), 1) * e;
-        rC = Math.floor(Math.min(Math.max(rC * fade, 0), 255));
-        gC = Math.floor(Math.min(Math.max(gC * fade, 0), 255));
-        bC = Math.floor(Math.min(Math.max(bC * fade, 0), 255));
-
-        if (e >= 0.02 && Math.max(rC, gC, bC) >= 14) {
-          const sc = F / (DC - q[2]);
+          const brightness = Math.floor(255 * (1.0 - Math.min(1.0, dist * 0.8)));
           renderList.push({
-            z: q[2],
-            sx: W / 2 + q[0] * sc,
-            sy: CY - q[1] * sc,
-            char: RING_LET[i],
-            sc: sc,
-            color: [rC, gC, bC]
+            z: pZ, sx: px, sy: py,
+            char: p.char, sc: scB * (1.0 + dist * 1.5),
+            color: [brightness, Math.floor(brightness * 0.96), Math.floor(brightness * 0.85)]
           });
         }
       }
 
-      // 4. Orbiting Comets / Ring Halos
-      if (t >= 8.5) {
-        const kHalo = Math.min(1.0, (t - 8.5) / 1.2);
-        for (let orb of ORBITS) {
-          for (let j = 0; j < 70; j++) {
-            const rawO = getOrbitPoint(t, orb.ex, orb.ey, orb.rx, orb.ry, orb.sp, j);
-            const oSpin = rotY(rawO, ringBaseAng * 0.4);
-            const oWorld = [oSpin[0] + ringPos[0], oSpin[1] + ringPos[1], oSpin[2] + ringPos[2]];
-            const o = rot3D(oWorld, manualRotX, manualRotY);
+      // 4. Render 3D Ring (ONLY the Ring Rotates on User Touch Swipe)
+      if (t > T_BOX_OPEN && ringAlpha > 0.01) {
+        for (let i = 0; i < RING_P.length; i++) {
+          const k = RING_KIND[i];
+          let e = Math.min(Math.max((t - START[k] - RING_D[i] * SPAN[k]) / 0.7, 0), 1);
+          e = 1 - Math.pow(1 - e, 3);
+          e *= ringAlpha;
 
-            const sc = F / (DC - o[2]);
-            const v = Math.floor(255 * kHalo * Math.pow(j / 69, 2));
+          const pFar = [
+            RING_P[i][0] + (1 - e) * RING_FAR[i][0],
+            RING_P[i][1] + (1 - e) * RING_FAR[i][1],
+            RING_P[i][2] + (1 - e) * RING_FAR[i][2]
+          ];
+
+          // Rotate Ring Local Mesh via User Touch Swipe (X & Y axes)
+          const pRingRot = rot3D(pFar, ringRotX, ringRotY);
+          const nRingRot = rot3D(RING_N[i], ringRotX, ringRotY);
+
+          // Translate transformed ring to centered screen position
+          const worldP = [
+            pRingRot[0] + ringPos[0],
+            pRingRot[1] + ringPos[1],
+            pRingRot[2] + ringPos[2]
+          ];
+
+          const q = rot3D(worldP, 0, 0);
+          const n = rot3D(nRingRot, 0, 0);
+
+          function spec(L, kPower) {
+            const h = unit([L[0], L[1], L[2] + 1]);
+            return Math.pow(Math.max(0, dot(n, h)), kPower);
+          }
+
+          const dif = Math.max(0, dot(n, L1));
+          const isGem = (k === 2);
+
+          const b = isGem
+            ? 0.12 + 1.3 * spec(L2, 40) + 0.7 * spec(L1, 30)
+            : 0.22 + 0.5 * dif + 0.9 * spec(L1, 20) + 0.8 * spec(L2, 30);
+
+          if (isGem && b > 0.9 && e > 0.5) glintHits++;
+
+          const bb = Math.min(Math.max(b, 0), 1);
+          const hot = Math.min(Math.max(b - 0.85, 0), 1) * 255;
+          const ph = Math.atan2(n[2], n[0]) * 3 + t * 3;
+
+          const rb = [
+            0.5 + 0.5 * Math.sin(ph),
+            0.5 + 0.5 * Math.sin(ph + 2.1),
+            0.5 + 0.5 * Math.sin(ph + 4.2)
+          ];
+
+          let rC, gC, bC;
+          if (isGem) {
+            const factor = 255 * bb;
+            rC = factor * (0.6 + 0.4 * rb[0]);
+            gC = factor * (0.6 + 0.4 * rb[1]);
+            bC = factor * (0.6 + 0.4 * rb[2]);
+          } else {
+            rC = 235 * bb + hot;
+            gC = 170 * bb + hot;
+            bC = 90  * bb + hot;
+          }
+
+          const fade = Math.min(Math.max(0.6 + 0.3 * q[2], 0.2), 1) * e;
+          rC = Math.floor(Math.min(Math.max(rC * fade, 0), 255));
+          gC = Math.floor(Math.min(Math.max(gC * fade, 0), 255));
+          bC = Math.floor(Math.min(Math.max(bC * fade, 0), 255));
+
+          if (e >= 0.02 && Math.max(rC, gC, bC) >= 14) {
+            const sc = F / (DC - q[2]);
             renderList.push({
-              z: o[2],
-              sx: W / 2 + o[0] * sc,
-              sy: CY - o[1] * sc,
-              char: WORDS[j % 8],
-              sc: sc,
-              color: [v, v, Math.floor(v * 0.9)]
+              z: q[2], sx: W / 2 + q[0] * sc, sy: CY - q[1] * sc,
+              char: RING_LET[i], sc: sc,
+              color: [rC, gC, bC]
             });
           }
         }
       }
 
-      // --- Painter's Algorithm: Depth Sort Far to Near ---
+      // 5. Render Orbiting Comets (Anchored to transformed ring rotation matrix)
+      if (t >= T_RING_EMERGE) {
+        const kHalo = Math.min(1.0, (t - T_RING_EMERGE) / 1.2);
+        for (let orb of ORBITS) {
+          for (let j = 0; j < 70; j++) {
+            const rawO = getOrbitPoint(t, orb.ex, orb.ey, orb.rx, orb.ry, orb.sp, j);
+            const oRot = rot3D(rawO, ringRotX, ringRotY);
+            const oWorld = [oRot[0] + ringPos[0], oRot[1] + ringPos[1], oRot[2] + ringPos[2]];
+            const o = rot3D(oWorld, 0, 0);
+
+            const sc = F / (DC - o[2]);
+            const v = Math.floor(255 * kHalo * Math.pow(j / 69, 2));
+
+            renderList.push({
+              z: o[2], sx: W / 2 + o[0] * sc, sy: CY - o[1] * sc,
+              char: WORDS[j % 8], sc: sc,
+              color: [Math.floor(v * 0.9), v, v]
+            });
+          }
+        }
+      }
+
+      // --- Painter's Algorithm Depth Sort ---
       renderList.sort((a, b) => a.z - b.z);
 
-      // --- Render All ASCII Points ---
+      // --- Render ASCII Character Points ---
       let visibleLetters = 0;
       for (let i = 0; i < renderList.length; i++) {
         const pt = renderList[i];
@@ -661,7 +728,7 @@
         visibleLetters++;
       }
 
-      // --- Dual Gaussian Blur Bloom Filter ---
+      // --- Double-Buffered Gaussian Blur Bloom Pass ---
       bloomCtx.clearRect(0, 0, W, H);
       bloomCtx.drawImage(canvas, 0, 0);
 
@@ -681,7 +748,7 @@
       ctx.fillStyle = 'rgb(135,135,135)';
       ctx.textAlign = 'left';
 
-      const degY = ((manualRotY * 180 / Math.PI) % 360 + 360) % 360;
+      const degY = (((ringRotY) * 180 / Math.PI) % 360 + 360) % 360;
       ctx.fillText(`rotation ${degY.toFixed(2).padStart(6, ' ')} deg`, 30, 50);
       ctx.fillText(`glints   ${glintHits}`, 30, 82);
       ctx.fillText(`letters  ${visibleLetters.toLocaleString()}`, 30, 114);
@@ -690,10 +757,10 @@
       ctx.textAlign = 'right';
       ctx.fillText(`t ${t.toFixed(2)}s`, W - 30, 50);
 
-      // Proposal Cursive Script Overlay
+      // Proposal Script Overlay
       if (t > T_PROPOSAL) {
         const msg = "will you be mine forever and ever?";
-        const charCount = Math.floor((t - T_PROPOSAL) * 10);
+        const charCount = Math.floor((t - T_PROPOSAL) * 9);
         const part = msg.substring(0, charCount);
 
         ctx.save();
@@ -707,10 +774,10 @@
       }
     }
 
-    // --- Main Animation Engine Loop ---
-    const startTime = performance.now();
+    // --- Animation Loop ---
     function loop() {
-      const elapsed = (performance.now() - startTime) / 1000.0;
+      const now = performance.now();
+      const elapsed = (now - startTime) / 1000.0;
       draw(elapsed);
       requestAnimationFrame(loop);
     }
