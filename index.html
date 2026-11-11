@@ -3,78 +3,75 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>A Special Proposal</title>
-
-  <!-- Tailwind CSS -->
-  <script src="https://cdn.tailwindcss.com"></script>
-  <!-- Three.js & Post-processing -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
-
+  <title>3D ASCII Ring & Box</title>
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600&family=Great+Vibes&display=swap');
-    
     * {
-      touch-action: none;
-      -webkit-touch-callout: none;
-      -webkit-user-select: none;
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
       user-select: none;
+      -webkit-user-select: none;
+      touch-action: none;
     }
     body, html {
       width: 100%;
       height: 100%;
-      margin: 0;
-      padding: 0;
+      background-color: #000;
       overflow: hidden;
-      background-color: #020204;
-      font-family: 'Fira Code', monospace;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
+      display: flex;
+      justify-content: center;
+      align-items: center;
     }
-    .hud-text {
-      text-shadow: 0 0 8px rgba(0, 255, 200, 0.4);
+    #canvas-container {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      max-width: 1080px;
+      max-height: 1100px;
+      aspect-ratio: 1080 / 1100;
+      display: flex;
+      justify-content: center;
+      align-items: center;
     }
-    .script-text {
-      font-family: 'Great Vibes', cursive;
-      text-shadow: 0 0 15px rgba(225, 235, 255, 0.9), 0 0 30px rgba(180, 210, 255, 0.6);
+    canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+      background-color: #000000;
     }
   </style>
 </head>
-<body class="relative w-full h-full bg-black text-white flex flex-col justify-between p-4 sm:p-6 overflow-hidden">
-
-  <!-- WebGL Render Viewport -->
-  <div id="webgl-container" class="absolute inset-0 w-full h-full z-0"></div>
-
-  <!-- HUD Overlay Top -->
-  <div class="relative z-10 w-full flex justify-between items-start pointer-events-none select-none">
-    <div class="flex flex-col gap-1 text-xs sm:text-sm text-gray-400 hud-text font-semibold tracking-wider">
-      <div id="hud-rot">rotation   0.00 deg</div>
-      <div id="hud-glints">glints         0</div>
-      <div id="hud-letters">letters    6,380</div>
-    </div>
-    <div class="text-xs sm:text-sm text-indigo-400 hud-text font-semibold tracking-wider" id="hud-time">
-      t  0.00s
-    </div>
-  </div>
-
-  <!-- Proposal Script Text Reveal -->
-  <div class="relative z-10 w-full mb-6 sm:mb-10 text-center pointer-events-none select-none min-h-[4rem] flex items-center justify-center">
-    <p id="script-msg" class="script-text text-3xl sm:text-5xl md:text-6xl text-blue-100 tracking-wide px-4 transition-all duration-300"></p>
-  </div>
-
-  <!-- Interaction Guidance Touch Hint -->
-  <div id="swipe-hint" class="absolute bottom-3 right-4 z-10 text-[11px] text-gray-400 opacity-0 transition-opacity duration-700 pointer-events-none">
-    Swipe anywhere to rotate in 3D
+<body>
+  <div id="canvas-container">
+    <canvas id="stage" width="1080" height="1100"></canvas>
   </div>
 
   <script>
-    // --- iOS Safari High-Precision GLSL Shader Precision Guard ---
-    const precisionFix = 'precision highp float;\nprecision highp int;\n';
+    // --- Canvas Projection & Scene Constants ---
+    const W = 1080, H = 1100, CY = 580, F = 1740, DC = 6.0;
+    const R = 1.0, r = 0.18;
+    const WORDS = "ILOVEYOU";
 
-    // --- Seeded PRNG for Deterministic Point Clouds ---
+    // Animation Timeline Keyframes (seconds)
+    // 0.0 - 2.5: Box glides up into center
+    // 2.5 - 4.0: Box vibrates/shakes
+    // 4.0 - 6.5: Box lid hinges open to the right
+    // 6.5 - 9.5: Ring emerges towards camera; Box recedes back-left
+    // 9.5+: Proposal script text types out
+    const T_BOX_ARRIVE = 2.5;
+    const T_BOX_SHAKE  = 4.0;
+    const T_BOX_OPEN   = 6.5;
+    const T_RING_RISE  = 9.5;
+    const T_PROPOSAL   = 9.8;
+
+    const RING_START = [7.0, 7.8, 8.4]; // Band, Prongs, Gem fly-in timeline
+    const RING_SPAN  = [1.8, 0.9, 1.1];
+
+    const G = 0.44, T = 0.27, HC = 0.20, HP = 0.36;
+    const GY = R + r + HP - 0.05;
+
+    // --- Seeded PRNG (Mulberry32) ---
     class Mulberry32 {
       constructor(seed) { this.s = seed; }
       next() {
@@ -93,15 +90,7 @@
     }
     const rng = new Mulberry32(7);
 
-    // --- Parametric Geometry Constants ---
-    const R = 1.0, r = 0.18;
-    const WORDS = "ILOVEYOU";
-    const START = [2.2, 4.6, 5.8, 8.5, 13.2];
-    const SPAN = [2.6, 1.0, 1.4];
-    const G = 0.44, T = 0.27, HC = 0.20, HP = 0.36;
-    const GY = R + r + HP - 0.05;
-
-    // --- 100% Point-Cloud Geometry Generators ---
+    // --- 100% ASCII Point-Cloud Geometry Generators ---
 
     // 1. Ring Band (2,600 Points)
     function generateBand(n = 2600) {
@@ -185,714 +174,548 @@
       return { P, N, D };
     }
 
-    // 4. Point-Cloud Box Base & Cushion (1,200 Points)
-    function generateBoxBasePoints(n = 1200) {
-      const P = [], N = [], D = [];
-      const width = 1.6, height = 0.7, depth = 1.6;
+    // 4. Parametric ASCII Ring Box Base + Cushion Surface Generator (1,400 Points)
+    function generateBoxBase(n = 1400) {
+      const P = [], N = [], D = [], KIND = [];
+      const bw = 1.7, bh = 0.7, bd = 1.7; // Box dimensions
 
       for (let i = 0; i < n; i++) {
         const face = rng.integer(0, 6);
-        let u = rng.uniform(-0.5, 0.5);
-        let v = rng.uniform(-0.5, 0.5);
-        let pos = [0, 0, 0], norm = [0, 0, 0];
+        const u = rng.uniform(-0.5, 0.5);
+        const v = rng.uniform(-0.5, 0.5);
+        let pos = [0, 0, 0], norm = [0, 0, 0], kind = 3; // 3: Velvet Exterior
 
-        if (face === 0) { pos = [u * width, height / 2, v * depth]; norm = [0, 1, 0]; }
-        else if (face === 1) { pos = [u * width, -height / 2, v * depth]; norm = [0, -1, 0]; }
-        else if (face === 2) { pos = [width / 2, u * height, v * depth]; norm = [1, 0, 0]; }
-        else if (face === 3) { pos = [-width / 2, u * height, v * depth]; norm = [-1, 0, 0]; }
-        else if (face === 4) { pos = [u * width, v * height, depth / 2]; norm = [0, 0, 1]; }
-        else { pos = [u * width, v * height, -depth / 2]; norm = [0, 0, -1]; }
-
-        // Velvet Cushion Insert Rim Differentiation
-        const isCushion = face === 0 && Math.abs(u) < 0.42 && Math.abs(v) < 0.42;
-        const kind = isCushion ? 4.0 : (face === 0 ? 5.0 : 3.0); // 3: Exterior Velvet, 4: Interior Velvet, 5: Gold Rim
+        if (face === 0) {
+          // Top Surface / Velvet Insert Cushion & Gold Trim
+          pos = [u * bw, bh / 2, v * bd];
+          norm = [0, 1, 0];
+          const isRim = Math.abs(u) > 0.42 || Math.abs(v) > 0.42;
+          const isSlot = !isRim && Math.abs(u) < 0.08 && Math.abs(v) < 0.35;
+          kind = isRim ? 5 : (isSlot ? 6 : 4); // 5: Gold Rim, 4: Red Cushion, 6: Shadow Slot
+          if (isSlot) pos[1] -= 0.08;
+        } else if (face === 1) {
+          pos = [u * bw, -bh / 2, v * bd]; norm = [0, -1, 0];
+        } else if (face === 2) {
+          pos = [bw / 2, u * bh, v * bd]; norm = [1, 0, 0];
+        } else if (face === 3) {
+          pos = [-bw / 2, u * bh, v * bd]; norm = [-1, 0, 0];
+        } else if (face === 4) {
+          pos = [u * bw, v * bh, bd / 2]; norm = [0, 0, 1];
+        } else {
+          pos = [u * bw, v * bh, -bd / 2]; norm = [0, 0, -1];
+        }
 
         P.push(pos);
         N.push(norm);
-        D.push(kind);
+        D.push(rng.next());
+        KIND.push(kind);
       }
-      return { P, N, D };
+      return { P, N, D, KIND };
     }
 
-    // 5. Point-Cloud Box Lid (900 Points)
-    function generateBoxLidPoints(n = 900) {
-      const P = [], N = [], D = [];
-      const width = 1.6, height = 0.7, depth = 1.6;
+    // 5. Parametric ASCII Box Lid Surface Generator (900 Points)
+    function generateBoxLid(n = 900) {
+      const P = [], N = [], D = [], KIND = [];
+      const bw = 1.7, bh = 0.6, bd = 1.7;
 
       for (let i = 0; i < n; i++) {
         const face = rng.integer(0, 6);
-        let u = rng.uniform(-0.5, 0.5);
-        let v = rng.uniform(-0.5, 0.5);
-        let pos = [0, 0, 0], norm = [0, 0, 0];
+        const u = rng.uniform(-0.5, 0.5);
+        const v = rng.uniform(-0.5, 0.5);
+        let pos = [0, 0, 0], norm = [0, 0, 0], kind = 3;
 
-        // Lid Local Coordinates with Hinge Pivot Offset (z = 0 at hinge)
-        if (face === 0) { pos = [u * width, height, v * depth + depth / 2]; norm = [0, 1, 0]; }
-        else if (face === 1) { pos = [u * width, 0, v * depth + depth / 2]; norm = [0, -1, 0]; }
-        else if (face === 2) { pos = [width / 2, u * height + height / 2, v * depth + depth / 2]; norm = [1, 0, 0]; }
-        else if (face === 3) { pos = [-width / 2, u * height + height / 2, v * depth + depth / 2]; norm = [-1, 0, 0]; }
-        else if (face === 4) { pos = [u * width, v * height + height / 2, depth]; norm = [0, 0, 1]; }
-        else { pos = [u * width, v * height + height / 2, 0]; norm = [0, 0, -1]; }
+        // Local coordinates relative to hinge pivot (hinge at z = +bd/2)
+        if (face === 0) {
+          pos = [u * bw, bh, v * bd - bd / 2]; norm = [0, 1, 0];
+          kind = 3;
+        } else if (face === 1) {
+          pos = [u * bw, 0, v * bd - bd / 2]; norm = [0, -1, 0];
+          kind = (Math.abs(u) > 0.42 || Math.abs(v) > 0.42) ? 5 : 4; // Interior Satin
+        } else if (face === 2) {
+          pos = [bw / 2, u * bh + bh / 2, v * bd - bd / 2]; norm = [1, 0, 0];
+        } else if (face === 3) {
+          pos = [-bw / 2, u * bh + bh / 2, v * bd - bd / 2]; norm = [-1, 0, 0];
+        } else if (face === 4) {
+          pos = [u * bw, v * bh + bh / 2, 0]; norm = [0, 0, 1];
+        } else {
+          pos = [u * bw, v * bh + bh / 2, -bd]; norm = [0, 0, -1];
+        }
 
-        const kind = (face === 1) ? 4.0 : (face === 0 ? 5.0 : 3.0);
         P.push(pos);
         N.push(norm);
-        D.push(kind);
+        D.push(rng.next());
+        KIND.push(kind);
       }
-      return { P, N, D };
+      return { P, N, D, KIND };
     }
 
-    // Assemble Composite Scene Mesh Data
-    const ringBandData = generateBand();
-    const ringProngsData = generateProngs();
-    const ringGemData = generateGem();
-    const boxBaseData = generateBoxBasePoints();
-    const boxLidData = generateBoxLidPoints();
+    // --- Build Composite Scene Datasets ---
+    const ringParts = [generateBand(), generateProngs(), generateGem()];
+    const boxBase = generateBoxBase();
+    const boxLid  = generateBoxLid();
 
-    const ringParts = [ringBandData, ringProngsData, ringGemData];
-    const totalRingPoints = ringParts.reduce((acc, p) => acc + p.P.length, 0);
-
-    // Build Ring Buffer Arrays
-    const ringPosAttr = new Float32Array(totalRingPoints * 3);
-    const ringNormAttr = new Float32Array(totalRingPoints * 3);
-    const ringFarAttr = new Float32Array(totalRingPoints * 3);
-    const ringDAttr = new Float32Array(totalRingPoints);
-    const ringKindAttr = new Float32Array(totalRingPoints);
-    const ringCharIdxAttr = new Float32Array(totalRingPoints);
-
-    let pIdx = 0;
-    ringParts.forEach((part, kIdx) => {
+    const RING_P = [], RING_N = [], RING_D = [], RING_KIND = [], RING_LET = [], RING_FAR = [];
+    ringParts.forEach((part, kIndex) => {
       for (let i = 0; i < part.P.length; i++) {
-        ringPosAttr.set(part.P[i], pIdx * 3);
-        ringNormAttr.set(part.N[i], pIdx * 3);
-        ringFarAttr.set([rng.normal(0, 1.4), rng.normal(0, 1.4), rng.normal(0, 1.4)], pIdx * 3);
-        ringDAttr[pIdx] = part.D[i];
-        ringKindAttr[pIdx] = kIdx;
-        ringCharIdxAttr[pIdx] = WORDS.indexOf(WORDS[rng.integer(0, WORDS.length)]);
-        pIdx++;
+        RING_P.push(part.P[i]);
+        RING_N.push(part.N[i]);
+        RING_D.push(part.D[i]);
+        RING_KIND.push(kIndex); // 0: Band, 1: Prongs, 2: Gem
+        RING_LET.push(WORDS[rng.integer(0, WORDS.length)]);
+        RING_FAR.push([rng.normal(0, 1.4), rng.normal(0, 1.4), rng.normal(0, 1.4)]);
       }
     });
 
-    // Build Box Buffer Arrays (Base + Lid)
-    function buildBoxBuffers(data) {
-      const count = data.P.length;
-      const pos = new Float32Array(count * 3);
-      const norm = new Float32Array(count * 3);
-      const kind = new Float32Array(count);
-      const charIdx = new Float32Array(count);
-
-      for (let i = 0; i < count; i++) {
-        pos.set(data.P[i], i * 3);
-        norm.set(data.N[i], i * 3);
-        kind[i] = data.D[i];
-        charIdx[i] = WORDS.indexOf(WORDS[rng.integer(0, WORDS.length)]);
+    function initBoxData(data) {
+      const LET = [], FAR = [];
+      for (let i = 0; i < data.P.length; i++) {
+        LET.push(WORDS[rng.integer(0, WORDS.length)]);
+        FAR.push([rng.normal(0, 1.2), rng.normal(0, 1.2), rng.normal(0, 1.2)]);
       }
-      return { pos, norm, kind, charIdx, count };
+      return { ...data, LET, FAR };
+    }
+    const BOX_BASE = initBoxData(boxBase);
+    const BOX_LID  = initBoxData(boxLid);
+
+    const STARS = [];
+    for (let i = 0; i < 70; i++) {
+      STARS.push([rng.next(), rng.next(), rng.next()]);
     }
 
-    const boxBaseBuffers = buildBoxBuffers(boxBaseData);
-    const boxLidBuffers = buildBoxBuffers(boxLidData);
-
-    const totalLetterPointsCount = totalRingPoints + boxBaseBuffers.count + boxLidBuffers.count;
-
-    // --- Dynamic Texture Atlas Setup ---
-    function createFontAtlas() {
-      const atlasCanvas = document.createElement('canvas');
-      atlasCanvas.width = 512;
-      atlasCanvas.height = 64;
-      const actx = atlasCanvas.getContext('2d');
-      actx.fillStyle = 'rgba(0,0,0,0)';
-      actx.fillRect(0, 0, 512, 64);
-      actx.font = 'bold 44px sans-serif';
-      actx.textAlign = 'center';
-      actx.textBaseline = 'middle';
-      actx.fillStyle = '#ffffff';
-
-      for (let i = 0; i < WORDS.length; i++) {
-        actx.fillText(WORDS[i], (i + 0.5) * 64, 32);
-      }
-      const tex = new THREE.CanvasTexture(atlasCanvas);
-      tex.minFilter = THREE.LinearFilter;
-      tex.magFilter = THREE.LinearFilter;
-      return tex;
+    // --- Vector Math Utilities ---
+    function dot(a, b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
+    function norm(v) {
+      const l = Math.hypot(v[0], v[1], v[2]);
+      return l === 0 ? [0, 0, 0] : [v[0] / l, v[1] / l, v[2] / l];
     }
-    const fontAtlasTexture = createFontAtlas();
+    function rotX(p, angle) {
+      const c = Math.cos(angle), s = Math.sin(angle);
+      return [p[0], p[1] * c - p[2] * s, p[1] * s + p[2] * c];
+    }
+    function rotY(p, angle) {
+      const c = Math.cos(angle), s = Math.sin(angle);
+      return [p[0] * c + p[2] * s, p[1], p[2] * c - p[0] * s];
+    }
+    function rotZ(p, angle) {
+      const c = Math.cos(angle), s = Math.sin(angle);
+      return [p[0] * c - p[1] * s, p[0] * s + p[1] * c, p[2]];
+    }
+    function rot3D(p, rx, ry, tilt = 0.3) {
+      // Rotate Y, then X, then Apply Camera Tilt
+      let v = rotY(p, ry);
+      v = rotX(v, rx);
+      const ct = Math.cos(tilt), st = Math.sin(tilt);
+      return [v[0], v[1] * ct - v[2] * st, v[1] * st + v[2] * ct];
+    }
 
-    // --- Three.js WebGL Scene Setup ---
-    const container = document.getElementById('webgl-container');
-    const scene = new THREE.Scene();
-
-    const camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 0.1, 100);
-    camera.position.set(0, 0.2, 6.5);
-
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: "high-performance" });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.25;
-    container.appendChild(renderer.domElement);
-
-    // Dynamic Lighting
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
-    scene.add(ambientLight);
-
-    const dirLight = new THREE.DirectionalLight(0xffecd1, 1.8);
-    dirLight.position.set(3, 5, 4);
-    scene.add(dirLight);
-
-    // Point Cloud Box Base Group
-    const boxGroup = new THREE.Group();
-    boxGroup.rotation.y = Math.PI / 4; // Face upper-right
-    boxGroup.position.set(0, -6, 0);
-    scene.add(boxGroup);
-
-    // Box Base Instanced Point Material
-    const BoxShaderMaterial = new THREE.ShaderMaterial({
-      uniforms: {
-        uTime: { value: 0 },
-        uFontAtlas: { value: fontAtlasTexture }
-      },
-      vertexShader: precisionFix + `
-        attribute vec3 instancePosition;
-        attribute vec3 instanceNormal;
-        attribute float aKind;
-        attribute float aCharIdx;
-
-        uniform float uTime;
-
-        varying vec2 vUv;
-        varying vec3 vColor;
-        varying float vAlpha;
-
-        void main() {
-          vec3 n = normalize(instanceNormal);
-          vec3 L1 = normalize(vec3(-0.5, 0.7, 0.8));
-          vec3 L2 = normalize(vec3(cos(uTime * 2.2), 0.35, sin(uTime * 2.2)));
-
-          vec3 H1 = normalize(L1 + vec3(0.0, 0.0, 1.0));
-          vec3 H2 = normalize(L2 + vec3(0.0, 0.0, 1.0));
-
-          float dif = max(0.0, dot(n, L1));
-          float spec1 = pow(max(0.0, dot(n, H1)), 20.0);
-          float spec2 = pow(max(0.0, dot(n, H2)), 25.0);
-
-          float b = 0.25 + 0.6 * dif + 0.8 * spec1 + 0.7 * spec2;
-          float bb = clamp(b, 0.0, 1.0);
-
-          vec3 col = vec3(0.0);
-          if (aKind > 4.5) {
-            // Gold Trim Points
-            col = vec3(0.85, 0.70, 0.22) * bb + vec3(spec1);
-          } else if (aKind > 3.5) {
-            // Interior Velvet Cushion Points
-            col = vec3(0.12, 0.04, 0.07) * (0.4 + 0.6 * dif);
-          } else {
-            // Exterior Deep Red Velvet Box Points
-            col = vec3(0.35, 0.05, 0.12) * bb + vec3(spec2 * 0.4);
-          }
-
-          vColor = col;
-          vAlpha = 1.0;
-
-          float colWidth = 1.0 / 8.0;
-          vUv = vec2((uv.x + aCharIdx) * colWidth, uv.y);
-
-          vec4 mvPosition = modelViewMatrix * vec4(instancePosition, 1.0);
-          gl_Position = projectionMatrix * mvPosition;
-        }
-      `,
-      fragmentShader: precisionFix + `
-        uniform sampler2D uFontAtlas;
-        varying vec2 vUv;
-        varying vec3 vColor;
-        varying float vAlpha;
-
-        void main() {
-          if (vAlpha < 0.5) discard;
-          vec4 texColor = texture2D(uFontAtlas, vUv);
-          if (texColor.a < 0.1) discard;
-          gl_FragColor = vec4(vColor * texColor.rgb, texColor.a);
-        }
-      `,
-      transparent: true,
-      depthTest: true,
-      depthWrite: false,
-      side: THREE.DoubleSide
-    });
-
-    const planeGeo = new THREE.PlaneGeometry(0.07, 0.07);
-
-    // Create Box Base Mesh
-    const boxBaseInstancedGeo = new THREE.InstancedBufferGeometry();
-    boxBaseInstancedGeo.index = planeGeo.index;
-    boxBaseInstancedGeo.attributes.position = planeGeo.attributes.position;
-    boxBaseInstancedGeo.attributes.uv = planeGeo.attributes.uv;
-    boxBaseInstancedGeo.setAttribute('instancePosition', new THREE.InstancedBufferAttribute(boxBaseBuffers.pos, 3));
-    boxBaseInstancedGeo.setAttribute('instanceNormal', new THREE.InstancedBufferAttribute(boxBaseBuffers.norm, 3));
-    boxBaseInstancedGeo.setAttribute('aKind', new THREE.InstancedBufferAttribute(boxBaseBuffers.kind, 1));
-    boxBaseInstancedGeo.setAttribute('aCharIdx', new THREE.InstancedBufferAttribute(boxBaseBuffers.charIdx, 1));
-
-    const boxBaseMesh = new THREE.Mesh(boxBaseInstancedGeo, BoxShaderMaterial);
-    boxGroup.add(boxBaseMesh);
-
-    // Create Box Lid Mesh & Pivoting Lid Group
-    const boxLidGroup = new THREE.Group();
-    boxLidGroup.position.set(0, 0.0, -0.8); // Hinge pivot point at back edge
-    boxGroup.add(boxLidGroup);
-
-    const boxLidInstancedGeo = new THREE.InstancedBufferGeometry();
-    boxLidInstancedGeo.index = planeGeo.index;
-    boxLidInstancedGeo.attributes.position = planeGeo.attributes.position;
-    boxLidInstancedGeo.attributes.uv = planeGeo.attributes.uv;
-    boxLidInstancedGeo.setAttribute('instancePosition', new THREE.InstancedBufferAttribute(boxLidBuffers.pos, 3));
-    boxLidInstancedGeo.setAttribute('instanceNormal', new THREE.InstancedBufferAttribute(boxLidBuffers.norm, 3));
-    boxLidInstancedGeo.setAttribute('aKind', new THREE.InstancedBufferAttribute(boxLidBuffers.kind, 1));
-    boxLidInstancedGeo.setAttribute('aCharIdx', new THREE.InstancedBufferAttribute(boxLidBuffers.charIdx, 1));
-
-    const boxLidMesh = new THREE.Mesh(boxLidInstancedGeo, BoxShaderMaterial);
-    boxLidGroup.add(boxLidMesh);
-
-    // --- Instanced Ring Mesh Setup ---
-    const RingShaderMaterial = new THREE.ShaderMaterial({
-      uniforms: {
-        uTime: { value: 0 },
-        uFontAtlas: { value: fontAtlasTexture },
-        uRotMatrix: { value: new THREE.Matrix4() }
-      },
-      vertexShader: precisionFix + `
-        attribute vec3 instancePosition;
-        attribute vec3 aFar;
-        attribute float aD;
-        attribute float aKind;
-        attribute float aCharIdx;
-
-        uniform float uTime;
-        uniform mat4 uRotMatrix;
-
-        varying vec2 vUv;
-        varying vec3 vColor;
-        varying float vAlpha;
-
-        const float START[5] = float[5](2.2, 4.6, 5.8, 8.5, 13.2);
-        const float SPAN[3] = float[3](2.6, 1.0, 1.4);
-
-        void main() {
-          int k = int(aKind);
-          float startT = START[k];
-          float spanT = (k == 0) ? SPAN[0] : ((k == 1) ? SPAN[1] : SPAN[2]);
-
-          float e = clamp((uTime - startT - aD * spanT) / 0.7, 0.0, 1.0);
-          e = 1.0 - pow(1.0 - e, 3.0);
-
-          vec3 basePos = instancePosition + (1.0 - e) * aFar;
-          vec4 rotPos = uRotMatrix * vec4(basePos, 1.0);
-          vec4 rotNorm = uRotMatrix * vec4(normal, 0.0);
-
-          vec3 n = normalize(rotNorm.xyz);
-          vec3 L1 = normalize(vec3(-0.5, 0.7, 0.8));
-          vec3 L2 = normalize(vec3(cos(uTime * 2.2), 0.35, sin(uTime * 2.2)));
-
-          vec3 H1 = normalize(L1 + vec3(0.0, 0.0, 1.0));
-          vec3 H2 = normalize(L2 + vec3(0.0, 0.0, 1.0));
-
-          float specK1 = (k == 2) ? 30.0 : 20.0;
-          float specK2 = (k == 2) ? 40.0 : 30.0;
-          float spec1 = pow(max(0.0, dot(n, H1)), specK1);
-          float spec2 = pow(max(0.0, dot(n, H2)), specK2);
-          float dif = max(0.0, dot(n, L1));
-
-          float b = (k == 2) 
-            ? (0.12 + 1.3 * spec2 + 0.7 * spec1)
-            : (0.22 + 0.5 * dif + 0.9 * spec1 + 0.8 * spec2);
-
-          float bb = clamp(b, 0.0, 1.0);
-          float hot = clamp(b - 0.85, 0.0, 1.0) * 1.0;
-          float ph = atan(n.z, n.x) * 3.0 + uTime * 3.0;
-          vec3 rb = 0.5 + 0.5 * sin(ph + vec3(0.0, 2.1, 4.2));
-
-          vec3 gold = vec3(90.0/255.0, 170.0/255.0, 235.0/255.0) * bb + vec3(hot);
-          vec3 gemCol = vec3(bb) * (0.6 + 0.4 * rb);
-          vec3 col = (k == 2) ? gemCol : gold;
-
-          float fade = clamp(0.6 + 0.3 * rotPos.z, 0.2, 1.0) * e;
-          vColor = clamp(col * fade, 0.0, 1.0);
-          vAlpha = (e < 0.02 || max(vColor.r, max(vColor.g, vColor.b)) < 0.05) ? 0.0 : 1.0;
-
-          float colWidth = 1.0 / 8.0;
-          vUv = vec2((uv.x + aCharIdx) * colWidth, uv.y);
-
-          vec4 mvPosition = modelViewMatrix * rotPos;
-          gl_Position = projectionMatrix * mvPosition;
-        }
-      `,
-      fragmentShader: precisionFix + `
-        uniform sampler2D uFontAtlas;
-        varying vec2 vUv;
-        varying vec3 vColor;
-        varying float vAlpha;
-
-        void main() {
-          if (vAlpha < 0.5) discard;
-          vec4 texColor = texture2D(uFontAtlas, vUv);
-          if (texColor.a < 0.1) discard;
-          gl_FragColor = vec4(vColor * texColor.rgb, texColor.a);
-        }
-      `,
-      transparent: true,
-      depthTest: true,
-      depthWrite: false,
-      side: THREE.DoubleSide
-    });
-
-    const ringInstancedGeo = new THREE.InstancedBufferGeometry();
-    ringInstancedGeo.index = planeGeo.index;
-    ringInstancedGeo.attributes.position = planeGeo.attributes.position;
-    ringInstancedGeo.attributes.uv = planeGeo.attributes.uv;
-
-    ringInstancedGeo.setAttribute('instancePosition', new THREE.InstancedBufferAttribute(ringPosAttr, 3));
-    ringInstancedGeo.setAttribute('normal', new THREE.InstancedBufferAttribute(ringNormAttr, 3));
-    ringInstancedGeo.setAttribute('aFar', new THREE.InstancedBufferAttribute(ringFarAttr, 3));
-    ringInstancedGeo.setAttribute('aD', new THREE.InstancedBufferAttribute(ringDAttr, 1));
-    ringInstancedGeo.setAttribute('aKind', new THREE.InstancedBufferAttribute(ringKindAttr, 1));
-    ringInstancedGeo.setAttribute('aCharIdx', new THREE.InstancedBufferAttribute(ringCharIdxAttr, 1));
-
-    const ringMesh = new THREE.Mesh(ringInstancedGeo, RingShaderMaterial);
-
-    const ringGroup = new THREE.Group();
-    ringGroup.add(ringMesh);
-    scene.add(ringGroup);
-    ringGroup.position.set(0, -6, 0);
-
-    // --- Orbiting Comets ---
     const ORBITS = [
       { ex: [1, 0.3, 0], ey: [0, 0.2, 1], rx: 1.55, ry: 0.7, sp: 1.3 },
       { ex: [1, -0.35, 0], ey: [0, 0.9, 0.5], rx: 1.4, ry: 0.8, sp: -1.1 }
     ];
 
-    const cometPointsCount = 70 * ORBITS.length;
-    const cometGeo = new THREE.InstancedBufferGeometry();
-    cometGeo.index = planeGeo.index;
-    cometGeo.attributes.position = planeGeo.attributes.position;
-    cometGeo.attributes.uv = planeGeo.attributes.uv;
-
-    const cometPosAttr = new Float32Array(cometPointsCount * 3);
-    const cometCharAttr = new Float32Array(cometPointsCount);
-    const cometValAttr = new Float32Array(cometPointsCount);
-
-    for (let oIdx = 0; oIdx < ORBITS.length; oIdx++) {
-      for (let j = 0; j < 70; j++) {
-        const idx = oIdx * 70 + j;
-        cometCharAttr[idx] = j % 8;
-        cometValAttr[idx] = Math.pow(j / 69, 2);
-      }
+    function getOrbitPoint(t, ex, ey, rx, ry, sp, j, m = 70) {
+      const a = (j / (m - 1)) * 1.7 * Math.PI + t * sp;
+      const ca = Math.cos(a), sa = Math.sin(a);
+      return [
+        rx * ca * ex[0] + ry * sa * ey[0],
+        rx * ca * ex[1] + ry * sa * ey[1],
+        rx * ca * ex[2] + ry * sa * ey[2]
+      ];
     }
-
-    cometGeo.setAttribute('instancePosition', new THREE.InstancedBufferAttribute(cometPosAttr, 3));
-    cometGeo.setAttribute('aCharIdx', new THREE.InstancedBufferAttribute(cometCharAttr, 1));
-    cometGeo.setAttribute('aVal', new THREE.InstancedBufferAttribute(cometValAttr, 1));
-
-    const CometShaderMaterial = new THREE.ShaderMaterial({
-      uniforms: {
-        uTime: { value: 0 },
-        uFontAtlas: { value: fontAtlasTexture },
-        uRotMatrix: { value: new THREE.Matrix4() },
-        uK: { value: 0 }
-      },
-      vertexShader: precisionFix + `
-        attribute vec3 instancePosition;
-        attribute float aCharIdx;
-        attribute float aVal;
-
-        uniform float uTime;
-        uniform float uK;
-        uniform mat4 uRotMatrix;
-
-        varying vec2 vUv;
-        varying vec3 vColor;
-        varying float vAlpha;
-
-        void main() {
-          vec4 rotPos = uRotMatrix * vec4(instancePosition, 1.0);
-          float colWidth = 1.0 / 8.0;
-          vUv = vec2((uv.x + aCharIdx) * colWidth, uv.y);
-          
-          float v = uK * aVal;
-          vColor = vec3(v, v, v * 0.9);
-          vAlpha = uK > 0.001 ? 1.0 : 0.0;
-
-          vec4 mvPosition = modelViewMatrix * rotPos;
-          gl_Position = projectionMatrix * mvPosition;
-        }
-      `,
-      fragmentShader: precisionFix + `
-        uniform sampler2D uFontAtlas;
-        varying vec2 vUv;
-        varying vec3 vColor;
-        varying float vAlpha;
-
-        void main() {
-          if (vAlpha < 0.1) discard;
-          vec4 texColor = texture2D(uFontAtlas, vUv);
-          if (texColor.a < 0.1) discard;
-          gl_FragColor = vec4(vColor * texColor.rgb, texColor.a);
-        }
-      `,
-      transparent: true,
-      depthTest: true,
-      depthWrite: false
-    });
-
-    const cometMesh = new THREE.Mesh(cometGeo, CometShaderMaterial);
-    ringGroup.add(cometMesh);
-
-    // --- Post-Processing Bloom Pipeline ---
-    const renderScene = new THREE.RenderPass(scene, camera);
-    const bloomPass = new THREE.UnrealBloomPass(
-      new THREE.Vector2(window.innerWidth, window.innerHeight),
-      1.3, 0.4, 0.15
-    );
-
-    const composer = new THREE.EffectComposer(renderer);
-    composer.addPass(renderScene);
-    composer.addPass(bloomPass);
-
-    // --- Starfield Background ---
-    const starCount = 80;
-    const starGeo = new THREE.BufferGeometry();
-    const starPos = new Float32Array(starCount * 3);
-    for (let i = 0; i < starCount; i++) {
-      starPos.set([(rng.next() - 0.5) * 9.0, (rng.next() - 0.5) * 9.0, -4.0 + rng.next() * 2.0], i * 3);
-    }
-    starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
-    const starPoints = new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.04, transparent: true, opacity: 0.7 }));
-    scene.add(starPoints);
-
-    // --- Full Multi-Axis Quaternion Touch Trackball ---
-    const currentQuaternion = new THREE.Quaternion();
-    const targetQuaternion = new THREE.Quaternion();
-    const angularVelocity = new THREE.Vector3(0, 0, 0);
-
-    let isDragging = false;
-    let rotationUnlocked = false;
-    let lastPointerX = 0, lastPointerY = 0;
-    let lastInteractionTime = performance.now();
-
-    function onPointerDown(x, y) {
-      if (!rotationUnlocked) return;
-      isDragging = true;
-      lastPointerX = x;
-      lastPointerY = y;
-      angularVelocity.set(0, 0, 0);
-      lastInteractionTime = performance.now();
-    }
-
-    function onPointerMove(x, y) {
-      if (!isDragging || !rotationUnlocked) return;
-
-      const deltaX = x - lastPointerX;
-      const deltaY = y - lastPointerY;
-      lastPointerX = x;
-      lastPointerY = y;
-
-      const sensitivity = 0.006;
-      const axis = new THREE.Vector3(deltaY, deltaX, 0).normalize();
-      const angle = Math.hypot(deltaX, deltaY) * sensitivity;
-
-      if (angle > 0.0001) {
-        const deltaQuat = new THREE.Quaternion().setFromAxisAngle(axis, angle);
-        targetQuaternion.premultiply(deltaQuat);
-        angularVelocity.set(deltaY * sensitivity, deltaX * sensitivity, 0);
-      }
-      lastInteractionTime = performance.now();
-    }
-
-    function onPointerUp() {
-      isDragging = false;
-    }
-
-    window.addEventListener('touchstart', (e) => {
-      if (e.touches.length === 1) onPointerDown(e.touches[0].clientX, e.touches[0].clientY);
-    }, { passive: true });
-
-    window.addEventListener('touchmove', (e) => {
-      if (e.touches.length === 1) onPointerMove(e.touches[0].clientX, e.touches[0].clientY);
-    }, { passive: true });
-
-    window.addEventListener('touchend', onPointerUp);
-
-    window.addEventListener('mousedown', (e) => onPointerDown(e.clientX, e.clientY));
-    window.addEventListener('mousemove', (e) => onPointerMove(e.clientX, e.clientY));
-    window.addEventListener('mouseup', onPointerUp);
-
-    window.addEventListener('resize', () => {
-      const w = window.innerWidth, h = window.innerHeight;
-      camera.aspect = w / h;
-      camera.updateProjectionMatrix();
-      renderer.setSize(w, h);
-      composer.setSize(w, h);
-    });
-
-    // Dynamic HUD References
-    const hudRot = document.getElementById('hud-rot');
-    const hudGlints = document.getElementById('hud-glints');
-    const hudLetters = document.getElementById('hud-letters');
-    const hudTime = document.getElementById('hud-time');
-    const scriptMsg = document.getElementById('script-msg');
-    const swipeHint = document.getElementById('swipe-hint');
 
     function easeInOutCubic(x) {
       return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
     }
 
-    const animationStartTime = performance.now();
-    const rotMatrix = new THREE.Matrix4();
-    const rotMatrixComet = new THREE.Matrix4();
-    const euler = new THREE.Euler();
-    const eulerComet = new THREE.Euler();
+    // --- HTML5 Canvas & Offscreen Blur Setup ---
+    const canvas = document.getElementById('stage');
+    const ctx = canvas.getContext('2d');
 
-    // --- Main Render Loop ---
-    function animate() {
-      requestAnimationFrame(animate);
+    const bloomCanvas = document.createElement('canvas');
+    bloomCanvas.width = W;
+    bloomCanvas.height = H;
+    const bloomCtx = bloomCanvas.getContext('2d');
 
-      const now = performance.now();
-      const realTime = (now - animationStartTime) / 1000.0;
+    // Touch & Swipe Rotation Interaction State
+    let manualRotX = 0, manualRotY = 0;
+    let velRotX = 0, velRotY = 0;
+    let isDragging = false;
+    let lastPointerX = 0, lastPointerY = 0;
+    let lastInteractionTime = 0;
 
-      // Update Box Shader Uniform Time
-      BoxShaderMaterial.uniforms.uTime.value = realTime;
-
-      // ==========================================
-      // TIMELINE SEQUENCE
-      // ==========================================
-
-      // Phase 1: Box Rises into View (0.0s - 2.5s)
-      if (realTime < 2.5) {
-        const p1 = Math.min(1.0, realTime / 2.5);
-        const easeP1 = easeInOutCubic(p1);
-        boxGroup.position.set(0, THREE.MathUtils.lerp(-6, -0.4, easeP1), 0);
-        ringGroup.position.set(0, THREE.MathUtils.lerp(-6, -0.4, easeP1), 0);
-      } 
-      // Phase 2: Box Shakes with Anticipation (2.5s - 4.0s)
-      else if (realTime < 4.0) {
-        const shakeT = (realTime - 2.5) * 18;
-        const shakeX = Math.sin(shakeT) * 0.04;
-        const shakeZ = Math.cos(shakeT * 0.8) * 0.04;
-        boxGroup.position.set(shakeX, -0.4, shakeZ);
-        ringGroup.position.set(shakeX, -0.4, shakeZ);
-      } 
-      // Phase 3: Point-Cloud Lid Opens Facing Right (4.0s - 6.5s)
-      else if (realTime < 6.5) {
-        boxGroup.position.set(0, -0.4, 0);
-        const openP = easeInOutCubic((realTime - 4.0) / 2.5);
-        boxLidGroup.rotation.x = -openP * (Math.PI * 0.75);
-      } 
-      // Phase 4: Ring Emerges Out of Box & Box Moves Back/Left (6.5s - 9.5s)
-      else if (realTime < 9.5) {
-        const emergeP = easeInOutCubic((realTime - 6.5) / 3.0);
-        boxLidGroup.rotation.x = -Math.PI * 0.75;
-
-        // Ring rises into camera center
-        ringGroup.position.set(0, THREE.MathUtils.lerp(-0.4, 0.2, emergeP), THREE.MathUtils.lerp(0, 1.2, emergeP));
-
-        // Open point-cloud box moves back and left
-        boxGroup.position.set(
-          THREE.MathUtils.lerp(0, -1.2, emergeP),
-          THREE.MathUtils.lerp(-0.4, -0.9, emergeP),
-          THREE.MathUtils.lerp(0, -1.8, emergeP)
-        );
-      } 
-      // Phase 5: Fully Emerged & Touch Controls Unlocked (9.5s+)
-      else {
-        if (!rotationUnlocked) {
-          rotationUnlocked = true;
-          swipeHint.classList.remove('opacity-0');
-        }
-      }
-
-      // Quaternion Physics Rotation Update
-      if (rotationUnlocked) {
-        if (!isDragging) {
-          if (angularVelocity.lengthSq() > 0.00001) {
-            const axis = angularVelocity.clone().normalize();
-            const angle = angularVelocity.length();
-            const deltaQuat = new THREE.Quaternion().setFromAxisAngle(axis, angle);
-            targetQuaternion.premultiply(deltaQuat);
-            angularVelocity.multiplyScalar(0.92);
-          } else if (now - lastInteractionTime > 2500) {
-            const autoAxis = new THREE.Vector3(0, 1, 0.3).normalize();
-            const autoQuat = new THREE.Quaternion().setFromAxisAngle(autoAxis, 0.005);
-            targetQuaternion.premultiply(autoQuat);
-          }
-        }
-        currentQuaternion.slerp(targetQuaternion, 0.12);
-      }
-
-      // Apply Matrix Uniforms to Ring Points
-      const ringTime = Math.max(0, realTime - 6.5);
-      const baseSpinAngle = 0.5 + 0.95 * ringTime;
-      euler.set(0.3, baseSpinAngle, 0, 'YXZ');
-      
-      rotMatrix.makeRotationFromQuaternion(currentQuaternion);
-      const baseMat = new THREE.Matrix4().makeRotationFromEuler(euler);
-      rotMatrix.multiply(baseMat);
-
-      RingShaderMaterial.uniforms.uTime.value = ringTime;
-      RingShaderMaterial.uniforms.uRotMatrix.value.copy(rotMatrix);
-
-      // Render Orbiting Halos
-      if (ringTime >= START[3]) {
-        const kHalo = Math.min(1.0, (ringTime - START[3]) / 1.2);
-        CometShaderMaterial.uniforms.uK.value = kHalo;
-        CometShaderMaterial.uniforms.uTime.value = ringTime;
-
-        eulerComet.set(0.3 * 0.4, baseSpinAngle * 0.4, 0, 'YXZ');
-        rotMatrixComet.makeRotationFromQuaternion(currentQuaternion);
-        rotMatrixComet.multiply(new THREE.Matrix4().makeRotationFromEuler(eulerComet));
-        CometShaderMaterial.uniforms.uRotMatrix.value.copy(rotMatrixComet);
-
-        let cIdx = 0;
-        const attrPos = cometGeo.attributes.instancePosition;
-        for (let oIdx = 0; oIdx < ORBITS.length; oIdx++) {
-          const orb = ORBITS[oIdx];
-          for (let j = 0; j < 70; j++) {
-            const a = (j / 69.0) * 1.7 * Math.PI + ringTime * orb.sp;
-            const ca = Math.cos(a), sa = Math.sin(a);
-            attrPos.setXYZ(
-              cIdx++,
-              orb.rx * ca * orb.ex[0] + orb.ry * sa * orb.ey[0],
-              orb.rx * ca * orb.ex[1] + orb.ry * sa * orb.ey[1],
-              orb.rx * ca * orb.ex[2] + orb.ry * sa * orb.ey[2]
-            );
-          }
-        }
-        attrPos.needsUpdate = true;
-      } else {
-        CometShaderMaterial.uniforms.uK.value = 0.0;
-      }
-
-      // Dynamic HUD Refresh
-      const currentEuler = new THREE.Euler().setFromQuaternion(currentQuaternion);
-      const deg = ((currentEuler.y * 180 / Math.PI) % 360 + 360) % 360;
-      const glintHits = Math.floor(Math.abs(Math.sin(ringTime * 3.0)) * 42);
-
-      hudRot.innerText = `rotation ${deg.toFixed(2).padStart(6, ' ')} deg`;
-      hudGlints.innerText = `glints   ${glintHits.toString().padStart(6, ' ')}`;
-      hudLetters.innerText = `letters  ${totalLetterPointsCount.toLocaleString().padStart(6, ' ')}`;
-      hudTime.innerText = `t ${realTime.toFixed(2).padStart(5, ' ')}s`;
-
-      // Cursive Script Proposal Typewriter Sequence
-      if (realTime > 8.0) {
-        const msg = "will you be mine forever and ever?";
-        const charCount = Math.floor((realTime - 8.0) * 9);
-        scriptMsg.innerText = msg.substring(0, charCount);
-      } else {
-        scriptMsg.innerText = "";
-      }
-
-      // Execute Render Pass
-      composer.render();
+    function handlePointerDown(x, y) {
+      isDragging = true;
+      lastPointerX = x;
+      lastPointerY = y;
+      velRotX = 0;
+      velRotY = 0;
+      lastInteractionTime = performance.now();
     }
 
-    // Start Engine
-    window.onload = animate;
+    function handlePointerMove(x, y) {
+      if (!isDragging) return;
+      const dx = x - lastPointerX;
+      const dy = y - lastPointerY;
+      lastPointerX = x;
+      lastPointerY = y;
+
+      velRotY = dx * 0.005;
+      velRotX = dy * 0.005;
+      manualRotY += velRotY;
+      manualRotX += velRotX;
+      lastInteractionTime = performance.now();
+    }
+
+    function handlePointerUp() {
+      isDragging = false;
+    }
+
+    window.addEventListener('mousedown', (e) => handlePointerDown(e.clientX, e.clientY));
+    window.addEventListener('mousemove', (e) => handlePointerMove(e.clientX, e.clientY));
+    window.addEventListener('mouseup', handlePointerUp);
+
+    window.addEventListener('touchstart', (e) => {
+      if (e.touches.length > 0) handlePointerDown(e.touches[0].clientX, e.touches[0].clientY);
+    }, { passive: true });
+
+    window.addEventListener('touchmove', (e) => {
+      if (e.touches.length > 0) handlePointerMove(e.touches[0].clientX, e.touches[0].clientY);
+    }, { passive: true });
+
+    window.addEventListener('touchend', handlePointerUp);
+
+    // --- Safari & Mobile Safe Canvas Text Renderer ---
+    function renderPointGlyph(targetCtx, charStr, px, py, fontSize, rC, gC, bC) {
+      targetCtx.font = `bold ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace`;
+      targetCtx.fillStyle = `rgb(${rC},${gC},${bC})`;
+      targetCtx.textAlign = 'center';
+      targetCtx.textBaseline = 'middle';
+      targetCtx.fillText(charStr, px, py);
+    }
+
+    // --- Main Rendering Pipeline ---
+    function draw(t) {
+      ctx.fillStyle = '#000000';
+      ctx.fillRect(0, 0, W, H);
+
+      // Inertial Momentum Decay & Fallback Auto-Rotation
+      if (!isDragging) {
+        manualRotX += velRotX;
+        manualRotY += velRotY;
+        velRotX *= 0.92;
+        velRotY *= 0.92;
+
+        if (performance.now() - lastInteractionTime > 2000) {
+          manualRotY += 0.006;
+        }
+      }
+
+      // Draw Starfield Background
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      for (let i = 0; i < STARS.length; i++) {
+        const [sx, sy, ss] = STARS[i];
+        const v = Math.floor(30 + 50 * Math.abs(Math.sin(t * ss * 3 + i)));
+        const py = ((sy * H - t * ss * 40) % H + H) % H;
+        renderPointGlyph(ctx, '+', sx * W, py, 14, v, v, v);
+      }
+
+      // Lighting Vectors
+      const L1 = norm([-0.5, 0.7, 0.8]);
+      const L2 = norm([Math.cos(t * 2.2), 0.35, Math.sin(t * 2.2)]);
+      const H1 = norm([L1[0], L1[1], L1[2] + 1]);
+      const H2 = norm([L2[0], L2[1], L2[2] + 1]);
+
+      // Calculate Box State & Position via Timeline
+      let boxPos = [0, 0, 0];
+      let lidAngle = 0;
+
+      if (t < T_BOX_ARRIVE) {
+        const p = easeInOutCubic(t / T_BOX_ARRIVE);
+        boxPos = [0, (1 - p) * -5.0, 0];
+      } else if (t < T_BOX_SHAKE) {
+        const st = (t - T_BOX_ARRIVE) * 22;
+        boxPos = [Math.sin(st) * 0.04, 0, Math.cos(st * 0.8) * 0.04];
+      } else if (t < T_BOX_OPEN) {
+        const p = easeInOutCubic((t - T_BOX_SHAKE) / (T_BOX_OPEN - T_BOX_SHAKE));
+        lidAngle = p * (Math.PI * 0.72); // Opens to right/back
+      } else if (t < T_RING_RISE) {
+        lidAngle = Math.PI * 0.72;
+        const p = easeInOutCubic((t - T_BOX_OPEN) / (T_RING_RISE - T_BOX_OPEN));
+        boxPos = [-1.4 * p, -0.6 * p, -2.0 * p]; // Box shifts back and left
+      } else {
+        lidAngle = Math.PI * 0.72;
+        boxPos = [-1.4, -0.6, -2.0];
+      }
+
+      // Calculate Ring Center Position via Timeline
+      let ringPos = [0, 0, 0];
+      if (t > T_BOX_OPEN) {
+        const p = easeInOutCubic(Math.min(1.0, (t - T_BOX_OPEN) / (T_RING_RISE - T_BOX_OPEN)));
+        ringPos = [0, p * 0.3, p * 1.3];
+      }
+
+      // Unified Render Queue for Painter's Algorithm Depth Sorting
+      const renderList = [];
+      let glintHits = 0;
+
+      // 1. Process Box Base ASCII Points
+      for (let i = 0; i < BOX_BASE.P.length; i++) {
+        const pLocal = BOX_BASE.P[i];
+        const nLocal = BOX_BASE.N[i];
+        const k = BOX_BASE.KIND[i];
+
+        const worldP = [pLocal[0] + boxPos[0], pLocal[1] + boxPos[1], pLocal[2] + boxPos[2]];
+        const q = rot3D(worldP, manualRotX, manualRotY);
+        const n = rot3D(nLocal, manualRotX, manualRotY);
+
+        const dif = Math.max(0, dot(n, L1));
+        const spec = Math.pow(Math.max(0, dot(n, H1)), 15);
+        let rC, gC, bC;
+
+        if (k === 5) { // Gold Rim
+          const bb = 0.3 + 0.7 * dif;
+          rC = Math.floor(215 * bb + spec * 100);
+          gC = Math.floor(170 * bb + spec * 100);
+          bC = Math.floor(50 * bb);
+        } else if (k === 4) { // Inner Cushion
+          rC = Math.floor(110 * (0.2 + 0.8 * dif));
+          gC = Math.floor(20 * (0.2 + 0.8 * dif));
+          bC = Math.floor(35 * (0.2 + 0.8 * dif));
+        } else if (k === 6) { // Shadow Slot
+          rC = 15; gC = 10; bC = 15;
+        } else { // Exterior Velvet Red
+          const bb = 0.2 + 0.8 * dif;
+          rC = Math.floor(180 * bb);
+          gC = Math.floor(25 * bb);
+          bC = Math.floor(45 * bb);
+        }
+
+        const sc = F / (DC - q[2]);
+        renderList.push({
+          z: q[2],
+          sx: W / 2 + q[0] * sc,
+          sy: CY - q[1] * sc,
+          char: BOX_BASE.LET[i],
+          sc: sc,
+          color: [Math.min(255, rC), Math.min(255, gC), Math.min(255, bC)]
+        });
+      }
+
+      // 2. Process Box Lid ASCII Points (Hinged Rotation around back edge)
+      for (let i = 0; i < BOX_LID.P.length; i++) {
+        const pLocal = BOX_LID.P[i];
+        const nLocal = BOX_LID.N[i];
+        const k = BOX_LID.KIND[i];
+
+        // Apply lid hinge rotation around Z-axis pivot at back edge
+        const pLidRot = rotZ(pLocal, lidAngle);
+        const nLidRot = rotZ(nLocal, lidAngle);
+
+        const worldP = [
+          pLidRot[0] + boxPos[0],
+          pLidRot[1] + boxPos[1] + 0.35,
+          pLidRot[2] + boxPos[2] + 0.85
+        ];
+
+        const q = rot3D(worldP, manualRotX, manualRotY);
+        const n = rot3D(nLidRot, manualRotX, manualRotY);
+
+        const dif = Math.max(0, dot(n, L1));
+        const spec = Math.pow(Math.max(0, dot(n, H1)), 15);
+        let rC, gC, bC;
+
+        if (k === 5) {
+          const bb = 0.3 + 0.7 * dif;
+          rC = Math.floor(215 * bb + spec * 100);
+          gC = Math.floor(170 * bb + spec * 100);
+          bC = Math.floor(50 * bb);
+        } else if (k === 4) { // Satin Inner Lid
+          rC = Math.floor(200 * (0.3 + 0.7 * dif));
+          gC = Math.floor(180 * (0.3 + 0.7 * dif));
+          bC = Math.floor(190 * (0.3 + 0.7 * dif));
+        } else {
+          const bb = 0.2 + 0.8 * dif;
+          rC = Math.floor(180 * bb);
+          gC = Math.floor(25 * bb);
+          bC = Math.floor(45 * bb);
+        }
+
+        const sc = F / (DC - q[2]);
+        renderList.push({
+          z: q[2],
+          sx: W / 2 + q[0] * sc,
+          sy: CY - q[1] * sc,
+          char: BOX_LID.LET[i],
+          sc: sc,
+          color: [Math.min(255, rC), Math.min(255, gC), Math.min(255, bC)]
+        });
+      }
+
+      // 3. Process Ring Point Cloud ASCII Characters
+      const ringTime = Math.max(0, t - RING_START[0]);
+      const ringBaseAng = 0.5 + 0.95 * ringTime;
+
+      for (let i = 0; i < RING_P.length; i++) {
+        const k = RING_KIND[i];
+        let e = Math.min(Math.max((t - RING_START[k] - RING_D[i] * RING_SPAN[k]) / 0.7, 0), 1);
+        e = 1 - Math.pow(1 - e, 3);
+
+        const pFar = [
+          RING_P[i][0] + (1 - e) * RING_FAR[i][0] + ringPos[0],
+          RING_P[i][1] + (1 - e) * RING_FAR[i][1] + ringPos[1],
+          RING_P[i][2] + (1 - e) * RING_FAR[i][2] + ringPos[2]
+        ];
+
+        // Apply ring auto spin + manual drag rotation
+        const qRingSpin = rotY(pFar, ringBaseAng);
+        const q = rot3D(qRingSpin, manualRotX, manualRotY);
+
+        const nSpin = rotY(RING_N[i], ringBaseAng);
+        const n = rot3D(nSpin, manualRotX, manualRotY);
+
+        const spec1 = Math.pow(Math.max(0, dot(n, H1)), k === 2 ? 30 : 20);
+        const spec2 = Math.pow(Math.max(0, dot(n, H2)), k === 2 ? 40 : 30);
+        const dif = Math.max(0, dot(n, L1));
+
+        const isGem = (k === 2);
+        const b = isGem
+          ? 0.12 + 1.3 * spec2 + 0.7 * spec1
+          : 0.22 + 0.5 * dif + 0.9 * spec1 + 0.8 * spec2;
+
+        if (isGem && b > 0.9 && e > 0.5) glintHits++;
+
+        const bb = Math.min(Math.max(b, 0), 1);
+        const hot = Math.min(Math.max(b - 0.85, 0), 1) * 255;
+        const ph = Math.atan2(n[2], n[0]) * 3 + t * 3;
+
+        const rb = [
+          0.5 + 0.5 * Math.sin(ph),
+          0.5 + 0.5 * Math.sin(ph + 2.1),
+          0.5 + 0.5 * Math.sin(ph + 4.2)
+        ];
+
+        let rC, gC, bC;
+        if (isGem) {
+          const factor = 255 * bb;
+          rC = factor * (0.6 + 0.4 * rb[0]);
+          gC = factor * (0.6 + 0.4 * rb[1]);
+          bC = factor * (0.6 + 0.4 * rb[2]);
+        } else {
+          rC = 90 * bb + hot;
+          gC = 170 * bb + hot;
+          bC = 235 * bb + hot;
+        }
+
+        const fade = Math.min(Math.max(0.6 + 0.3 * q[2], 0.2), 1) * e;
+        rC = Math.floor(Math.min(Math.max(rC * fade, 0), 255));
+        gC = Math.floor(Math.min(Math.max(gC * fade, 0), 255));
+        bC = Math.floor(Math.min(Math.max(bC * fade, 0), 255));
+
+        if (e >= 0.02 && Math.max(rC, gC, bC) >= 14) {
+          const sc = F / (DC - q[2]);
+          renderList.push({
+            z: q[2],
+            sx: W / 2 + q[0] * sc,
+            sy: CY - q[1] * sc,
+            char: RING_LET[i],
+            sc: sc,
+            color: [rC, gC, bC]
+          });
+        }
+      }
+
+      // 4. Orbiting Comets / Ring Halos
+      if (t >= 8.5) {
+        const kHalo = Math.min(1.0, (t - 8.5) / 1.2);
+        for (let orb of ORBITS) {
+          for (let j = 0; j < 70; j++) {
+            const rawO = getOrbitPoint(t, orb.ex, orb.ey, orb.rx, orb.ry, orb.sp, j);
+            const oSpin = rotY(rawO, ringBaseAng * 0.4);
+            const oWorld = [oSpin[0] + ringPos[0], oSpin[1] + ringPos[1], oSpin[2] + ringPos[2]];
+            const o = rot3D(oWorld, manualRotX, manualRotY);
+
+            const sc = F / (DC - o[2]);
+            const v = Math.floor(255 * kHalo * Math.pow(j / 69, 2));
+            renderList.push({
+              z: o[2],
+              sx: W / 2 + o[0] * sc,
+              sy: CY - o[1] * sc,
+              char: WORDS[j % 8],
+              sc: sc,
+              color: [v, v, Math.floor(v * 0.9)]
+            });
+          }
+        }
+      }
+
+      // --- Painter's Algorithm: Depth Sort Far to Near ---
+      renderList.sort((a, b) => a.z - b.z);
+
+      // --- Render All ASCII Points ---
+      let visibleLetters = 0;
+      for (let i = 0; i < renderList.length; i++) {
+        const pt = renderList[i];
+        const fontSize = Math.max(6, Math.floor(0.0016 * pt.sc * 20));
+        renderPointGlyph(ctx, pt.char, pt.sx, pt.sy, fontSize, pt.color[0], pt.color[1], pt.color[2]);
+        visibleLetters++;
+      }
+
+      // --- Dual Gaussian Blur Bloom Filter ---
+      bloomCtx.clearRect(0, 0, W, H);
+      bloomCtx.drawImage(canvas, 0, 0);
+
+      ctx.save();
+      ctx.globalCompositeOperation = 'screen';
+      ctx.globalAlpha = 0.75;
+      ctx.filter = 'blur(16px)';
+      ctx.drawImage(bloomCanvas, 0, 0);
+
+      ctx.globalAlpha = 0.35;
+      ctx.filter = 'blur(4px)';
+      ctx.drawImage(bloomCanvas, 0, 0);
+      ctx.restore();
+
+      // --- HUD Overlay Elements ---
+      ctx.font = '22px monospace';
+      ctx.fillStyle = 'rgb(135,135,135)';
+      ctx.textAlign = 'left';
+
+      const degY = ((manualRotY * 180 / Math.PI) % 360 + 360) % 360;
+      ctx.fillText(`rotation ${degY.toFixed(2).padStart(6, ' ')} deg`, 30, 50);
+      ctx.fillText(`glints   ${glintHits}`, 30, 82);
+      ctx.fillText(`letters  ${visibleLetters.toLocaleString()}`, 30, 114);
+
+      ctx.fillStyle = 'rgb(110,110,255)';
+      ctx.textAlign = 'right';
+      ctx.fillText(`t ${t.toFixed(2)}s`, W - 30, 50);
+
+      // Proposal Cursive Script Overlay
+      if (t > T_PROPOSAL) {
+        const msg = "will you be mine forever and ever?";
+        const charCount = Math.floor((t - T_PROPOSAL) * 10);
+        const part = msg.substring(0, charCount);
+
+        ctx.save();
+        ctx.font = 'italic 44px "Brush Script MT", cursive, sans-serif';
+        ctx.fillStyle = 'rgb(225, 235, 255)';
+        ctx.textAlign = 'center';
+        ctx.shadowColor = 'rgba(225, 235, 255, 0.8)';
+        ctx.shadowBlur = 12;
+        ctx.fillText(part, W / 2, 1030);
+        ctx.restore();
+      }
+    }
+
+    // --- Main Animation Engine Loop ---
+    const startTime = performance.now();
+    function loop() {
+      const elapsed = (performance.now() - startTime) / 1000.0;
+      draw(elapsed);
+      requestAnimationFrame(loop);
+    }
+
+    requestAnimationFrame(loop);
   </script>
 </body>
 </html>
